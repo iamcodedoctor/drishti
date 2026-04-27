@@ -1,6 +1,5 @@
 node_modules/
 data/
-output/
 .env
 tmp_*
 raw_results.txt
