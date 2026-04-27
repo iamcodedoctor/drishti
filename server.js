@@ -22,6 +22,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 const DATA_DIR = join(ROOT, 'data');
+const SCRAPE_CONFIG_PATH = join(ROOT, 'scrape.config.json');
 
 const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 /** Legacy / global inspector output at repo root — not a user project. */
@@ -45,7 +46,7 @@ const EDITABLE_FILES = new Set(['keywords.txt', 'blacklist.txt']);
 /** @type {Map<string, Set<import('http').ServerResponse>>} */
 const streamClients = new Map();
 
-/** @type {Map<string, { aborted: boolean, children: import('child_process').ChildProcess[] }>} */
+/** @type {Map<string, { aborted: boolean, children: import('child_process').ChildProcess[], projectName?: string, steps?: string[], status?: string, startedAt?: number, updatedAt?: number, finishedAt?: number, message?: string }>} */
 const activeRuns = new Map();
 
 const IMAGE_EXT = new Set([
@@ -53,6 +54,10 @@ const IMAGE_EXT = new Set([
 ]);
 
 const TEXT_VIEW_MAX = 4 * 1024 * 1024;
+const DEFAULT_SCRAPE_SETTINGS = {
+  maxPages: 2,
+  perEngine: {},
+};
 
 function isRunAborted(runId) {
   return activeRuns.get(runId)?.aborted === true;
@@ -98,7 +103,71 @@ function mimeForExt(ext) {
   return m[ext] || 'application/octet-stream';
 }
 
+function sanitizeScrapeSettings(input) {
+  const safe = {
+    maxPages: DEFAULT_SCRAPE_SETTINGS.maxPages,
+    perEngine: {},
+  };
+  const src = input && typeof input === 'object' ? input : {};
+  const clampPageCount = (n) => {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return null;
+    const v = Math.floor(x);
+    if (v < 1) return null;
+    return Math.min(v, 50);
+  };
+  const globalMax = clampPageCount(src.maxPages);
+  if (globalMax) safe.maxPages = globalMax;
+
+  const clampOffset = (n) => {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return 0;
+    const v = Math.floor(x);
+    if (v < 0) return 0;
+    return Math.min(v, 5000);
+  };
+  const per = src.perEngine && typeof src.perEngine === 'object' ? src.perEngine : {};
+  for (const key of ['bing', 'duckduckgo']) {
+    const raw = per[key];
+    let maxPages = null;
+    let offset = 0;
+
+    if (typeof raw === 'number') {
+      maxPages = clampPageCount(raw);
+    } else if (raw && typeof raw === 'object') {
+      maxPages = clampPageCount(raw.maxPages);
+      offset = clampOffset(raw.offset);
+    }
+
+    safe.perEngine[key] = {
+      offset,
+    };
+    if (maxPages) {
+      safe.perEngine[key].maxPages = maxPages;
+    }
+  }
+  return safe;
+}
+
+function readScrapeSettings() {
+  try {
+    const raw = readFileSync(SCRAPE_CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return sanitizeScrapeSettings(parsed);
+  } catch {
+    return { ...DEFAULT_SCRAPE_SETTINGS, perEngine: {} };
+  }
+}
+
+function writeScrapeSettings(settings) {
+  const safe = sanitizeScrapeSettings(settings);
+  writeFileSync(SCRAPE_CONFIG_PATH, `${JSON.stringify(safe, null, 2)}\n`, 'utf-8');
+  return safe;
+}
+
 function emitRunLog(runId, text) {
+  const run = activeRuns.get(runId);
+  if (run) run.updatedAt = Date.now();
   const set = streamClients.get(runId);
   if (!set?.size) return;
   const payload = JSON.stringify({ text });
@@ -112,6 +181,13 @@ function emitRunLog(runId, text) {
 }
 
 function emitRunDone(runId, ok, message, extra = {}) {
+  const run = activeRuns.get(runId);
+  if (run) {
+    run.status = extra.stopped ? 'stopped' : ok ? 'completed' : 'failed';
+    run.finishedAt = Date.now();
+    run.updatedAt = Date.now();
+    run.message = message || '';
+  }
   const set = streamClients.get(runId);
   if (!set?.size) return;
   const payload = JSON.stringify({
@@ -165,6 +241,35 @@ function registerRunChild(runId, child) {
   });
 }
 
+function ensureTmpFiles(root) {
+  const files = ['tmp_raw_results.txt', 'tmp_cleaned_results.txt', 'tmp_logs.txt'];
+  for (const file of files) {
+    const fp = join(root, file);
+    if (!existsSync(fp)) {
+      writeFileSync(fp, '', 'utf-8');
+    }
+  }
+}
+
+function appendKeywordsHistory(root, keywordsText, steps) {
+  const raw = String(keywordsText || '');
+  const cleaned = raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith('#'));
+  if (!cleaned.length) return;
+
+  const historyPath = join(root, 'keywords_history.txt');
+  const stamp = new Date().toISOString();
+  const header = `\n=== ${stamp} | steps: ${steps.join(', ')} ===\n`;
+  const body = cleaned.join('\n') + '\n';
+  try {
+    writeFileSync(historyPath, header + body, { encoding: 'utf-8', flag: 'a' });
+  } catch {
+    // non-fatal: history should not block a run
+  }
+}
+
 function runCmd(runId, command, args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     if (isRunAborted(runId)) {
@@ -195,11 +300,21 @@ function runCmd(runId, command, args, extraEnv = {}) {
   });
 }
 
-async function executeReconJob(runId, projectName, steps, keywordsText, blacklistText) {
-  activeRuns.set(runId, { aborted: false, children: [] });
+async function executeReconJob(runId, projectName, steps, keywordsText, blacklistText, runConfig = {}) {
+  activeRuns.set(runId, {
+    aborted: false,
+    children: [],
+    projectName,
+    steps: [...steps],
+    status: 'running',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    message: '',
+  });
 
   const root = projectPath(projectName);
   mkdirSync(root, { recursive: true });
+  ensureTmpFiles(root);
 
   const sorted = STEP_ORDER.filter((s) => steps.includes(s));
   const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo');
@@ -213,9 +328,28 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
       throw new Error('Keywords cannot be empty for scrape/clean steps');
     }
     writeFileSync(join(root, 'keywords.txt'), keywordsText, 'utf-8');
-    writeFileSync(join(root, 'blacklist.txt'), blacklistText, 'utf-8');
+    // Empty blacklist means "allow all"; cleaner handles missing/empty blacklist.
+    if (String(blacklistText).trim()) {
+      writeFileSync(join(root, 'blacklist.txt'), blacklistText, 'utf-8');
+    } else {
+      try {
+        unlinkSync(join(root, 'blacklist.txt'));
+      } catch {
+        /* ignore */
+      }
+    }
+    appendKeywordsHistory(root, keywordsText, sorted);
   } else if (runClean) {
-    writeFileSync(join(root, 'blacklist.txt'), blacklistText, 'utf-8');
+    // Clean should proceed even if blacklist is empty/missing.
+    if (String(blacklistText).trim()) {
+      writeFileSync(join(root, 'blacklist.txt'), blacklistText, 'utf-8');
+    } else {
+      try {
+        unlinkSync(join(root, 'blacklist.txt'));
+      } catch {
+        /* ignore */
+      }
+    }
   }
   // Inspector-only: do not overwrite keywords/blacklist from this form (use Save or existing files).
 
@@ -250,9 +384,17 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
     if (useTmpSerp && firstEngine) {
       args.push('--truncate-tmp');
     }
+    const per = runConfig?.[engineFlag] && typeof runConfig[engineFlag] === 'object' ? runConfig[engineFlag] : {};
+    const extraEnv = {};
+    if (typeof per.maxPages === 'number' && per.maxPages >= 1) {
+      extraEnv[engineFlag === 'bing' ? 'DRISHTI_BING_MAX_PAGES' : 'DRISHTI_DDG_MAX_PAGES'] = String(Math.floor(per.maxPages));
+    }
+    if (typeof per.offset === 'number' && per.offset >= 0) {
+      extraEnv[engineFlag === 'bing' ? 'DRISHTI_BING_OFFSET' : 'DRISHTI_DDG_OFFSET'] = String(Math.floor(per.offset));
+    }
     firstEngine = false;
     emitRunLog(runId, `\n[gui] ▶ node ${args.join(' ')}\n`);
-    await runCmd(runId, process.execPath, args);
+    await runCmd(runId, process.execPath, args, extraEnv);
   }
 
   if (runClean) {
@@ -288,6 +430,47 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
 const app = express();
 app.use(express.json({ limit: '4mb' }));
 app.use(express.static(join(ROOT, 'gui', 'public')));
+
+app.get('/api/settings/scrape', (_req, res) => {
+  try {
+    res.json({ settings: readScrapeSettings() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/settings/scrape', (req, res) => {
+  try {
+    const settings = writeScrapeSettings(req.body || {});
+    res.json({ ok: true, settings });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/runs', (req, res) => {
+  try {
+    const project = req.query.project ? String(req.query.project) : '';
+    const runs = [];
+    for (const [runId, entry] of activeRuns.entries()) {
+      if (project && entry.projectName !== project) continue;
+      runs.push({
+        runId,
+        projectName: entry.projectName || '',
+        steps: entry.steps || [],
+        status: entry.status || (entry.aborted ? 'stopped' : 'running'),
+        startedAt: entry.startedAt || null,
+        updatedAt: entry.updatedAt || null,
+        finishedAt: entry.finishedAt || null,
+        message: entry.message || '',
+      });
+    }
+    runs.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    res.json({ runs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/projects', (_req, res) => {
   try {
@@ -404,6 +587,7 @@ app.post('/api/projects/:name/recon', (req, res) => {
     steps = [],
     keywords = '',
     blacklist = '',
+    runConfig = {},
   } = req.body || {};
 
   if (!runId || typeof runId !== 'string') {
@@ -423,7 +607,19 @@ app.post('/api/projects/:name/recon', (req, res) => {
 
   res.json({ ok: true, started: true });
 
-  void executeReconJob(runId, name, stepList, String(keywords), String(blacklist))
+  const safeRunConfig = {};
+  for (const key of ['bing', 'duckduckgo']) {
+    const raw = runConfig?.[key];
+    if (!raw || typeof raw !== 'object') continue;
+    const obj = {};
+    const mp = Number(raw.maxPages);
+    if (Number.isFinite(mp) && mp >= 1) obj.maxPages = Math.floor(mp);
+    const off = Number(raw.offset);
+    if (Number.isFinite(off) && off >= 0) obj.offset = Math.floor(off);
+    safeRunConfig[key] = obj;
+  }
+
+  void executeReconJob(runId, name, stepList, String(keywords), String(blacklist), safeRunConfig)
     .then(() => emitRunDone(runId, true, ''))
     .catch((e) => {
       if (e.message === 'STOPPED') {
@@ -435,7 +631,8 @@ app.post('/api/projects/:name/recon', (req, res) => {
       }
     })
     .finally(() => {
-      activeRuns.delete(runId);
+      const entry = activeRuns.get(runId);
+      if (entry) entry.updatedAt = Date.now();
     });
 });
 
@@ -446,6 +643,8 @@ app.post('/api/runs/:runId/stop', (req, res) => {
     return res.status(404).json({ error: 'No active run for this id' });
   }
   entry.aborted = true;
+  entry.status = 'stopping';
+  entry.updatedAt = Date.now();
   for (const child of [...entry.children]) {
     try {
       child.kill('SIGTERM');

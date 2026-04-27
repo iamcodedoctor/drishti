@@ -64,16 +64,14 @@ function parseCleanerArgs() {
 }
 
 // ─── Load blacklist from file ─────────────────────────
-function loadBlacklist() {
-  const blacklistPath = config.paths.blacklist;
+function readDomainList(path) {
   const domains = new Set();
-
   try {
-    if (!existsSync(blacklistPath)) {
+    if (!path || !existsSync(path)) {
       return domains;
     }
 
-    const raw = readFileSync(blacklistPath, 'utf-8');
+    const raw = readFileSync(path, 'utf-8');
     const lines = raw.split('\n')
       .map((l) => l.trim().toLowerCase())
       .filter((l) => l && !l.startsWith('#'));
@@ -92,6 +90,22 @@ function loadBlacklist() {
   } catch {
     return domains;
   }
+}
+
+// ─── Load blacklist from default + project files ──────
+function loadBlacklist() {
+  const merged = new Set();
+  const defaultSet = readDomainList(config.paths.defaultBlacklist);
+  const projectSet = readDomainList(config.paths.blacklist);
+
+  for (const d of defaultSet) merged.add(d);
+  for (const d of projectSet) merged.add(d);
+
+  return {
+    merged,
+    defaultCount: defaultSet.size,
+    projectCount: projectSet.size,
+  };
 }
 
 // ─── Built-in junk domains ───────────────────────────
@@ -160,11 +174,11 @@ function clean() {
   console.log('═══════════════════════════════════════\n');
 
   // Load blacklist
-  const blacklist = loadBlacklist();
+  const { merged: blacklist, defaultCount, projectCount } = loadBlacklist();
   if (blacklist.size > 0) {
-    console.log(`[BLACKLIST] Loaded ${blacklist.size} blacklisted domains from ${config.paths.blacklist}`);
+    console.log(`[BLACKLIST] Loaded ${blacklist.size} domains total (default=${defaultCount}, project=${projectCount})`);
   } else {
-    console.log('[BLACKLIST] No blacklist file found or empty — skipping');
+    console.log('[BLACKLIST] No default/project blacklist found or both empty — skipping');
   }
 
   // Read raw results

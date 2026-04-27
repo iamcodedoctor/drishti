@@ -8,13 +8,28 @@
   </head>
   <body>
     <header>
-      <h1>DRISHTI</h1>
+      <a href="#/" class="brand" aria-label="Drishti home">
+        <svg viewBox="0 0 64 64" aria-hidden="true" class="brand-logo">
+          <defs>
+            <linearGradient id="drishti-g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#5b8cff" />
+              <stop offset="100%" stop-color="#3ecf8e" />
+            </linearGradient>
+          </defs>
+          <circle cx="32" cy="32" r="26" fill="none" stroke="url(#drishti-g)" stroke-width="6" />
+          <circle cx="32" cy="32" r="8" fill="url(#drishti-g)" />
+          <path d="M8 32c5-9 14-14 24-14s19 5 24 14c-5 9-14 14-24 14S13 41 8 32Z" fill="none" stroke="url(#drishti-g)" stroke-width="4" />
+        </svg>
+        <span>Drishti</span>
+      </a>
       <nav id="nav-global"></nav>
     </header>
     <main id="main-shell">
       <div id="error-banner" class="error-banner"></div>
       <div id="view-dashboard" class="view"></div>
       <div id="view-project" class="view" style="display: none"></div>
+      <div id="view-config" class="view" style="display: none"></div>
+      <div id="view-stats" class="view" style="display: none"></div>
       <div id="view-browse" class="view view-fs" style="display: none"></div>
       <div id="view-text" class="view view-fs" style="display: none"></div>
     </main>

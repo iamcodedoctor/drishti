@@ -29,6 +29,7 @@ async function checkAndSolveCaptcha(page) {
  */
 async function searchDDG(page, keyword) {
   info(ENGINE, `Searching: "${keyword}" (up to ${cfg.maxPages} pages)`);
+  const baseOffset = Math.max(0, Math.floor(cfg.offset || 0));
   const allResults = [];
 
   try {
@@ -44,7 +45,11 @@ async function searchDDG(page, keyword) {
     if (!clear) return allResults;
 
     const page1Raw = await extractResults(page, ENGINE, keyword);
-    const page1 = normalizeAll(page1Raw, ENGINE, keyword);
+    const page1Adjusted = page1Raw.map((r, i) => ({
+      ...r,
+      position: baseOffset + i + 1,
+    }));
+    const page1 = normalizeAll(page1Adjusted, ENGINE, keyword);
     allResults.push(...page1);
     info(ENGINE, `  Page 1: ${page1.length} results`);
 
@@ -81,7 +86,7 @@ async function searchDDG(page, keyword) {
 
         const adjusted = newResults.map((r, i) => ({
           ...r,
-          position: allResults.length + i + 1,
+          position: baseOffset + allResults.length + i + 1,
         }));
 
         const normalized = normalizeAll(adjusted, ENGINE, keyword);

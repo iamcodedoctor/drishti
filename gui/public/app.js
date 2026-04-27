@@ -22,7 +22,7 @@ function showError(msg) {
   el.classList.add('visible');
 }
 
-/** @returns {{ route: 'dashboard'|'project'|'browse'|'text', name?: string, browsePath?: string, filePath?: string }} */
+/** @returns {{ route: 'dashboard'|'project'|'projectInputs'|'browse'|'text'|'config'|'stats'|'running'|'runningList', name?: string, browsePath?: string, filePath?: string, project?: string, runId?: string }} */
 function parseHash() {
   let h = location.hash.slice(1) || '/';
   if (!h.startsWith('/')) h = `/${h}`;
@@ -32,8 +32,27 @@ function parseHash() {
   const params = new URLSearchParams(queryPart);
   const segments = pathPart.split('/').filter(Boolean);
 
+  if (segments[0] === 'config') {
+    return { route: 'config' };
+  }
+  if (segments[0] === 'stats') {
+    return { route: 'stats' };
+  }
+  if (segments[0] === 'running') {
+    return {
+      route: 'running',
+      project: params.get('project') || '',
+      runId: params.get('runId') || '',
+    };
+  }
+  if (segments[0] === 'running-list') {
+    return { route: 'runningList' };
+  }
   if (segments[0] === 'project' && segments[1]) {
     const name = decodeURIComponent(segments[1]);
+    if (segments[2] === 'inputs') {
+      return { route: 'projectInputs', name };
+    }
     if (segments[2] === 'browse') {
       return { route: 'browse', name, browsePath: params.get('path') || '' };
     }
@@ -68,6 +87,19 @@ async function api(path, opts = {}) {
   }
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
+}
+
+async function getScrapeSettings() {
+  const { settings } = await api('/api/settings/scrape');
+  return settings || { maxPages: 2, perEngine: {} };
+}
+
+async function setScrapeSettings(payload) {
+  const { settings } = await api('/api/settings/scrape', {
+    method: 'PUT',
+    body: JSON.stringify(payload || {}),
+  });
+  return settings || { maxPages: 2, perEngine: {} };
 }
 
 function escapeHtml(s) {
@@ -177,22 +209,11 @@ function wireTextUrlInteractions(el, onCopied) {
 function renderNav(parsed) {
   const nav = $('#nav-global');
   const p = parsed || parseHash();
-  if (p.route === 'project') {
-    nav.innerHTML = `<a href="#/">← Dashboard</a>
-      <span class="badge"> / ${escapeHtml(p.name)}</span>
-      · <a href="#/project/${encodeURIComponent(p.name)}/browse">Files</a>`;
-  } else if (p.route === 'browse') {
-    nav.innerHTML = `<a href="#/">← Dashboard</a>
-      <a href="#/project/${encodeURIComponent(p.name)}">← ${escapeHtml(p.name)}</a>
-      <span class="badge"> / files</span>`;
-  } else if (p.route === 'text') {
-    nav.innerHTML = `<a href="#/">← Dashboard</a>
-      <a href="#/project/${encodeURIComponent(p.name)}">← ${escapeHtml(p.name)}</a>
-      · <a href="#/project/${encodeURIComponent(p.name)}/browse${p.filePath && p.filePath.includes('/') ? `?path=${encodeURIComponent(p.filePath.slice(0, p.filePath.lastIndexOf('/')))}` : ''}">← Browser</a>
-      <span class="badge"> / view</span>`;
-  } else {
-    nav.innerHTML = '';
-  }
+  nav.innerHTML = `
+    <a href="#/config"${p.route === 'config' ? ' class="badge"' : ''}>Config</a>
+    <a href="#/stats"${p.route === 'stats' ? ' class="badge"' : ''}>Statistics</a>
+    <a href="#/running-list"${p.route === 'runningList' ? ' class="badge"' : ''}>Running instances</a>
+  `;
 }
 
 /** --- Image modal --- */
@@ -287,12 +308,12 @@ async function loadDashboard() {
       (p) => `
       <li>
         <div>
-          <strong>${escapeHtml(p.name)}</strong>
+          <a class="project-link" href="#/project/${encodeURIComponent(p.name)}">${escapeHtml(p.name)}</a>
           <div class="badge">kw ${p.hasKeywords ? '✓' : '—'} · bl ${p.hasBlacklist ? '✓' : '—'} · raw ${p.hasRaw ? '✓' : '—'} · clean ${p.hasCleaned ? '✓' : '—'}</div>
         </div>
         <div class="row" style="gap:0.5rem">
-          <a class="btn secondary" href="#/project/${encodeURIComponent(p.name)}">Open</a>
-          <a class="btn secondary" href="#/project/${encodeURIComponent(p.name)}/browse">Files</a>
+          <a class="btn secondary" href="#/project/${encodeURIComponent(p.name)}">Project</a>
+          <a class="btn" href="#/project/${encodeURIComponent(p.name)}/inputs">RUN</a>
         </div>
       </li>`,
     )
@@ -301,14 +322,11 @@ async function loadDashboard() {
   $('#view-dashboard').innerHTML = `
     <div class="panel">
       <h2>Projects</h2>
-      <p class="hint">Each project is a folder under <code>data/</code>. Legacy <code>data/recon</code> is hidden from this list.</p>
-      <ul class="project-list">${list || '<li class="hint">No projects yet — create one below.</li>'}</ul>
-    </div>
-    <div class="panel">
-      <h2>Start new project</h2>
+      ${list ? `<ul class="project-list">${list}</ul>` : '<div class="home-empty"><h1>No projects initiated yet.</h1></div>'}
+      <p class="hint">Each project is stored under <code>data/</code>.</p>
       <div class="row">
         <input type="text" id="new-project-name" placeholder="e.g. acme-campaign" style="max-width: 320px" />
-        <button type="button" id="btn-create-project">Create folder</button>
+        <button type="button" id="btn-create-project">New project</button>
       </div>
       <p class="hint">Letters, digits, <code>.</code> <code>_</code> <code>-</code> only.</p>
     </div>`;
@@ -326,9 +344,106 @@ async function loadDashboard() {
   };
 
   $('#view-project').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
   $('#view-browse').style.display = 'none';
   $('#view-text').style.display = 'none';
   $('#view-dashboard').style.display = 'block';
+}
+
+async function loadConfig() {
+  showError('');
+  let scrapeSettings = { maxPages: 2, perEngine: { bing: { offset: 0 }, duckduckgo: { offset: 0 } } };
+  let settingsLoadError = '';
+  try {
+    const loaded = await getScrapeSettings();
+    if (loaded && typeof loaded === 'object') {
+      scrapeSettings = loaded;
+    }
+  } catch (e) {
+    settingsLoadError = e.message || 'Could not load settings from server';
+  }
+  const bing = scrapeSettings.perEngine?.bing || {};
+  const ddg = scrapeSettings.perEngine?.duckduckgo || {};
+
+  $('#view-config').innerHTML = `
+    <div class="panel">
+      <h2>Config</h2>
+      ${settingsLoadError ? `<div class="error-banner visible">Settings API unavailable: ${escapeHtml(settingsLoadError)}. Showing local defaults.</div>` : ''}
+      <p class="hint">Global defaults. If values are not defined later, these defaults are used.</p>
+      <div class="row" style="gap:0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem">
+        <label class="hint" for="cfg-global-max">Global max pages</label>
+        <input id="cfg-global-max" type="number" min="1" max="50" value="${escapeHtml(String(scrapeSettings.maxPages || 2))}" style="max-width: 140px" />
+      </div>
+      <div class="panel" style="margin-bottom: 0.75rem">
+        <h2>Bing</h2>
+        <div class="row" style="gap:0.75rem; flex-wrap: wrap">
+          <label class="hint" for="cfg-bing-pages">Pages</label>
+          <input id="cfg-bing-pages" type="number" min="1" max="50" value="${escapeHtml(String(bing.maxPages || ''))}" placeholder="inherit global" style="max-width: 140px" />
+          <label class="hint" for="cfg-bing-offset">Offset</label>
+          <input id="cfg-bing-offset" type="number" min="0" max="5000" value="${escapeHtml(String(bing.offset ?? 0))}" style="max-width: 140px" />
+        </div>
+      </div>
+      <div class="panel">
+        <h2>DuckDuckGo</h2>
+        <div class="row" style="gap:0.75rem; flex-wrap: wrap">
+          <label class="hint" for="cfg-ddg-pages">Pages</label>
+          <input id="cfg-ddg-pages" type="number" min="1" max="50" value="${escapeHtml(String(ddg.maxPages || ''))}" placeholder="inherit global" style="max-width: 140px" />
+          <label class="hint" for="cfg-ddg-offset">Offset</label>
+          <input id="cfg-ddg-offset" type="number" min="0" max="5000" value="${escapeHtml(String(ddg.offset ?? 0))}" style="max-width: 140px" />
+        </div>
+      </div>
+      <div class="row" style="margin-top: 0.9rem">
+        <button type="button" id="btn-save-config">Save config</button>
+      </div>
+    </div>`;
+
+  $('#btn-save-config').onclick = async () => {
+    try {
+      const payload = {
+        maxPages: Number($('#cfg-global-max').value),
+        perEngine: {
+          bing: {
+            maxPages: $('#cfg-bing-pages').value.trim() ? Number($('#cfg-bing-pages').value) : null,
+            offset: Number($('#cfg-bing-offset').value || 0),
+          },
+          duckduckgo: {
+            maxPages: $('#cfg-ddg-pages').value.trim() ? Number($('#cfg-ddg-pages').value) : null,
+            offset: Number($('#cfg-ddg-offset').value || 0),
+          },
+        },
+      };
+      await setScrapeSettings(payload);
+      showError('');
+      settingsLoadError = '';
+      await loadConfig();
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  $('#view-dashboard').style.display = 'none';
+  $('#view-project').style.display = 'none';
+  $('#view-stats').style.display = 'none';
+  $('#view-browse').style.display = 'none';
+  $('#view-text').style.display = 'none';
+  $('#view-config').style.display = 'block';
+}
+
+function loadStats() {
+  showError('');
+  $('#view-stats').innerHTML = `
+    <div class="panel">
+      <h2>Statistics</h2>
+      <h1>Work in progress</h1>
+    </div>`;
+
+  $('#view-dashboard').style.display = 'none';
+  $('#view-project').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-browse').style.display = 'none';
+  $('#view-text').style.display = 'none';
+  $('#view-stats').style.display = 'block';
 }
 
 /** --- Full-screen file browser --- */
@@ -410,6 +525,8 @@ async function loadBrowse(name, browsePath) {
 
   $('#view-dashboard').style.display = 'none';
   $('#view-project').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
   $('#view-text').style.display = 'none';
   $('#view-browse').style.display = 'flex';
 }
@@ -448,6 +565,8 @@ async function loadTextViewer(name, filePath) {
     statusEl.textContent = 'Open a file from the browser.';
     $('#view-dashboard').style.display = 'none';
     $('#view-project').style.display = 'none';
+    $('#view-config').style.display = 'none';
+    $('#view-stats').style.display = 'none';
     $('#view-browse').style.display = 'none';
     $('#view-text').style.display = 'flex';
     return;
@@ -497,84 +616,128 @@ async function loadTextViewer(name, filePath) {
 
   $('#view-dashboard').style.display = 'none';
   $('#view-project').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
   $('#view-browse').style.display = 'none';
   $('#view-text').style.display = 'flex';
 }
 
-/** --- Project (recon) --- */
+/** --- Project home (centered file browser) --- */
 async function loadProject(name) {
   showError('');
-  wireImageModalOnce();
-
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
     showError('Invalid project name');
     return loadDashboard();
   }
-
-  let files = [];
+  let entries = [];
   try {
-    const f = await api(`/api/projects/${encodeURIComponent(name)}/files`);
-    files = f.files || [];
+    const data = await api(`/api/projects/${encodeURIComponent(name)}/browse`);
+    entries = data.entries || [];
   } catch (e) {
     showError(e.message);
-    return loadDashboard();
   }
-
-  let keywords = '';
-  let blacklist = '';
-  try {
-    const k = await api(`/api/projects/${encodeURIComponent(name)}/file/keywords.txt`);
-    keywords = k.content || '';
-  } catch {
-    /* */
-  }
-  try {
-    const b = await api(`/api/projects/${encodeURIComponent(name)}/file/blacklist.txt`);
-    blacklist = b.content || '';
-  } catch {
-    /* */
-  }
-
-  const fileChips = files.map((f) => `<span class="file-chip">${escapeHtml(f)}</span>`).join('');
 
   $('#view-project').innerHTML = `
-    <div class="panel">
-      <h2>Project files</h2>
-      <div class="row" style="margin-bottom: 1rem">
-        <button type="button" class="secondary" id="btn-save-inputs">Save keywords & blacklist</button>
-        <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/browse">Full-screen file browser</a>
+    <div class="panel" style="max-width:860px;margin:0 auto;">
+      <h2>${escapeHtml(name)} — File browser</h2>
+      <p class="hint">Project root files and folders.</p>
+      <ul class="explorer-list" style="max-height:420px;margin-bottom:1rem;">
+        ${entries.map((ent) => {
+          const rel = ent.name;
+          const q = ent.type === 'dir'
+            ? `#/project/${encodeURIComponent(name)}/browse?path=${encodeURIComponent(rel)}`
+            : `#/project/${encodeURIComponent(name)}/text?path=${encodeURIComponent(rel)}`;
+          return `<li><span>${ent.type === 'dir' ? '📁' : '📄'} <a href="${q}">${escapeHtml(ent.name)}</a></span><span class="meta">${ent.type}</span></li>`;
+        }).join('') || '<li><span class="hint">No files yet.</span></li>'}
+      </ul>
+      <div class="row" style="justify-content:center;">
+        <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/browse">Open full browser</a>
+        <a class="btn" href="#/project/${encodeURIComponent(name)}/inputs">Re-run</a>
       </div>
-      <div>${fileChips || '<span class="hint">Empty folder — first save will create files.</span>'}</div>
-    </div>
-    <div class="panel">
-      <h2>Inputs</h2>
+    </div>`;
+
+  $('#view-dashboard').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
+  $('#view-browse').style.display = 'none';
+  $('#view-text').style.display = 'none';
+  $('#view-project').style.display = 'block';
+}
+
+async function loadProjectInputs(name) {
+  showError('');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
+    showError('Invalid project name');
+    return loadDashboard();
+  }
+  const [k, b, scrapeSettings] = await Promise.all([
+    api(`/api/projects/${encodeURIComponent(name)}/file/keywords.txt`).catch(() => ({ content: '' })),
+    api(`/api/projects/${encodeURIComponent(name)}/file/blacklist.txt`).catch(() => ({ content: '' })),
+    getScrapeSettings().catch(() => ({ maxPages: 2, perEngine: {} })),
+  ]);
+  const keywords = k.content || '';
+  const blacklist = b.content || '';
+  const defaults = scrapeSettings.perEngine || {};
+
+  $('#view-project').innerHTML = `
+    <div class="panel" style="max-width:920px;margin:0 auto;">
+      <h2>${escapeHtml(name)} — Inputs</h2>
       <p class="hint">Prefilled when files exist. On <strong>Start recon</strong>, these are written to the project folder before the run (when scrape/clean steps run).</p>
-      <label class="hint" for="fld-keywords">keywords.txt</label>
+      <label class="hint" for="fld-keywords">keywords</label>
       <textarea id="fld-keywords" placeholder="# one keyword per line"></textarea>
-      <label class="hint" for="fld-blacklist" style="display:block;margin-top:1rem">blacklist.txt</label>
+      <label class="hint" for="fld-blacklist" style="display:block;margin-top:1rem">blacklist</label>
       <textarea id="fld-blacklist" placeholder="# one domain per line"></textarea>
-    </div>
-    <div class="panel">
-      <h2>Start recon</h2>
-      <p class="hint">SERP steps use <code>tmp_*</code> files, then merge into canonical results. Use <strong>Stop</strong> to terminate the current subprocess (browser may stay open briefly).</p>
-      <div class="chk-wrap">
+      <div class="chk-wrap" style="margin-top:1rem">
         <label class="chk"><input type="checkbox" name="step" value="bing" /> Bing</label>
         <label class="chk"><input type="checkbox" name="step" value="duckduckgo" /> DuckDuckGo</label>
-        <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean & resolve</label>
+        <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean</label>
         <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
       </div>
-      <div class="row">
+      <div id="run-config-preview"></div>
+      <div class="row" style="margin-top:1rem">
+        <button type="button" id="btn-save-inputs" class="secondary">Save inputs</button>
         <button type="button" id="btn-recon">Start recon</button>
-        <button type="button" class="secondary" id="btn-stop-recon" disabled>Stop</button>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Console</h2>
-      <pre class="console" id="recon-console"></pre>
     </div>`;
 
   $('#fld-keywords').value = keywords;
   $('#fld-blacklist').value = blacklist;
+
+  function renderRunConfigPreview() {
+    const steps = [...document.querySelectorAll('input[name="step"]:checked')].map((x) => x.value);
+    const blocks = [];
+    if (steps.includes('bing')) {
+      const cfg = defaults.bing || {};
+      blocks.push(`
+        <div class="row" style="margin-bottom:0.5rem">
+          <strong>Bing</strong>
+          <label class="hint" for="run-bing-pages">Pages</label>
+          <input id="run-bing-pages" type="number" min="1" max="50" value="${escapeHtml(String(cfg.maxPages || scrapeSettings.maxPages || 2))}" style="max-width:120px" />
+          <label class="hint" for="run-bing-offset">Offset</label>
+          <input id="run-bing-offset" type="number" min="0" max="5000" value="${escapeHtml(String(cfg.offset || 0))}" style="max-width:120px" />
+        </div>`);
+    }
+    if (steps.includes('duckduckgo')) {
+      const cfg = defaults.duckduckgo || {};
+      blocks.push(`
+        <div class="row" style="margin-bottom:0.5rem">
+          <strong>DuckDuckGo</strong>
+          <label class="hint" for="run-ddg-pages">Pages</label>
+          <input id="run-ddg-pages" type="number" min="1" max="50" value="${escapeHtml(String(cfg.maxPages || scrapeSettings.maxPages || 2))}" style="max-width:120px" />
+          <label class="hint" for="run-ddg-offset">Offset</label>
+          <input id="run-ddg-offset" type="number" min="0" max="5000" value="${escapeHtml(String(cfg.offset || 0))}" style="max-width:120px" />
+        </div>`);
+    }
+    if (steps.includes('clean')) blocks.push('<div class="hint">Clean selected: uses current project raw results + blacklist.</div>');
+    if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
+    $('#run-config-preview').innerHTML = blocks.length
+      ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
+      : '';
+  }
+  document.querySelectorAll('input[name="step"]').forEach((el) => {
+    el.addEventListener('change', renderRunConfigPreview);
+  });
+  renderRunConfigPreview();
 
   $('#btn-save-inputs').onclick = async () => {
     try {
@@ -587,121 +750,155 @@ async function loadProject(name) {
         body: JSON.stringify({ content: $('#fld-blacklist').value }),
       });
       showError('');
-      appendConsole('[gui] Saved keywords.txt and blacklist.txt\n');
     } catch (e) {
       showError(e.message);
     }
   };
 
-  const consoleEl = $('#recon-console');
-  function appendConsole(text) {
+  $('#btn-recon').onclick = async () => {
+    const steps = [...document.querySelectorAll('input[name="step"]:checked')].map((x) => x.value);
+    if (!steps.length) return showError('Select at least one step');
+    const needsKw = steps.some((s) => ['bing', 'duckduckgo', 'clean'].includes(s));
+    const kw = $('#fld-keywords').value.trim();
+    if (needsKw && !kw) return showError('Keywords required for Bing, DuckDuckGo, or Clean');
+    const runId = crypto.randomUUID();
+    try {
+      const runConfig = {};
+      if (steps.includes('bing')) {
+        runConfig.bing = {
+          maxPages: Number($('#run-bing-pages')?.value || scrapeSettings.maxPages || 2),
+          offset: Number($('#run-bing-offset')?.value || 0),
+        };
+      }
+      if (steps.includes('duckduckgo')) {
+        runConfig.duckduckgo = {
+          maxPages: Number($('#run-ddg-pages')?.value || scrapeSettings.maxPages || 2),
+          offset: Number($('#run-ddg-offset')?.value || 0),
+        };
+      }
+      await api(`/api/projects/${encodeURIComponent(name)}/recon`, {
+        method: 'POST',
+        body: JSON.stringify({
+          runId,
+          steps,
+          keywords: $('#fld-keywords').value,
+          blacklist: $('#fld-blacklist').value,
+          runConfig,
+        }),
+      });
+      location.hash = `#/running?project=${encodeURIComponent(name)}&runId=${encodeURIComponent(runId)}`;
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  $('#view-dashboard').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
+  $('#view-browse').style.display = 'none';
+  $('#view-text').style.display = 'none';
+  $('#view-project').style.display = 'block';
+}
+
+async function loadRunning(project = '', focusRunId = '') {
+  showError('');
+  const q = project ? `?project=${encodeURIComponent(project)}` : '';
+  const data = await api(`/api/runs${q}`).catch(() => ({ runs: [] }));
+  const runs = data.runs || [];
+  const selected = focusRunId ? runs.find((r) => r.runId === focusRunId) : runs[0];
+  let currentRunId = selected?.runId || '';
+  const currentProject = selected?.projectName || project || '';
+  let es = null;
+
+  $('#view-project').innerHTML = `
+    <div class="panel" style="max-width:1080px;margin:0 auto;">
+      <div class="row" style="justify-content:space-between; margin-bottom:0.5rem;">
+        <h2 style="margin:0;">${currentProject ? `Console — ${escapeHtml(currentProject)}` : 'Console'}</h2>
+        <button type="button" class="danger" id="btn-stop-run"${currentRunId ? '' : ' disabled'}>Terminate</button>
+      </div>
+      ${currentRunId ? '' : '<p class="hint">No run selected. Open Running instances page and choose one.</p>'}
+      <pre class="console" id="run-console" style="min-height:420px;"></pre>
+    </div>`;
+
+  const consoleEl = $('#run-console');
+  const stopBtn = $('#btn-stop-run');
+  const append = (text) => {
     const line = document.createElement('div');
     line.className = 'line';
     line.textContent = text;
     consoleEl.appendChild(line);
     consoleEl.scrollTop = consoleEl.scrollHeight;
+  };
+
+  function bindStream(runId) {
+    if (es) es.close();
+    consoleEl.innerHTML = '';
+    if (!runId) return;
+    currentRunId = runId;
+    stopBtn.disabled = false;
+    append(`[gui] Streaming run: ${runId}\n`);
+    es = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream`);
+    es.onmessage = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        if (payload.text) append(payload.text);
+        if (payload.done) {
+          append(`\n[gui] ${payload.stopped ? 'Stopped' : payload.ok ? 'Completed' : `Error: ${payload.message || ''}`}\n`);
+        }
+      } catch {
+        append(`${ev.data}\n`);
+      }
+    };
+    es.onerror = () => {
+      append('[gui] Log stream disconnected.\n');
+    };
   }
 
-  let es = null;
-  let currentRunId = null;
-  const btnRecon = $('#btn-recon');
-  const btnStop = $('#btn-stop-recon');
-
-  btnStop.onclick = async () => {
+  stopBtn.onclick = async () => {
     if (!currentRunId) return;
     try {
-      const r = await fetch(`/api/runs/${encodeURIComponent(currentRunId)}/stop`, { method: 'POST' });
-      const t = await r.text();
-      if (!r.ok) {
-        let err = r.statusText;
-        try {
-          err = JSON.parse(t).error || err;
-        } catch {
-          /* */
-        }
-        appendConsole(`[gui] Stop: ${err}\n`);
-        return;
-      }
-      appendConsole('[gui] Stop signal sent.\n');
+      await api(`/api/runs/${encodeURIComponent(currentRunId)}/stop`, { method: 'POST' });
+      append('[gui] Stop signal sent.\n');
     } catch (e) {
-      appendConsole(`[gui] Stop failed: ${e.message}\n`);
+      append(`[gui] Stop failed: ${e.message}\n`);
     }
   };
 
-  btnRecon.onclick = async () => {
-    const steps = [...document.querySelectorAll('input[name="step"]:checked')].map((x) => x.value);
-    if (!steps.length) return showError('Select at least one step');
-
-    const needsKw = steps.some((s) => ['bing', 'duckduckgo', 'clean'].includes(s));
-    const kw = $('#fld-keywords').value.trim();
-    if (needsKw && !kw) return showError('Keywords required for Bing, DuckDuckGo, or Clean');
-
-    btnRecon.disabled = true;
-    btnStop.disabled = false;
-    consoleEl.innerHTML = '';
-    appendConsole('[gui] Connecting log stream…\n');
-
-    const runId = crypto.randomUUID();
-    currentRunId = runId;
-    if (es) es.close();
-    es = new EventSource(`/api/runs/${runId}/stream`);
-
-    const finishReconUi = () => {
-      btnRecon.disabled = false;
-      btnStop.disabled = true;
-      currentRunId = null;
-      if (es) {
-        es.close();
-        es = null;
-      }
-    };
-
-    let posted = false;
-    es.onopen = async () => {
-      if (posted) return;
-      posted = true;
-      try {
-        await api(`/api/projects/${encodeURIComponent(name)}/recon`, {
-          method: 'POST',
-          body: JSON.stringify({
-            runId,
-            steps,
-            keywords: $('#fld-keywords').value,
-            blacklist: $('#fld-blacklist').value,
-          }),
-        });
-      } catch (e) {
-        showError(e.message);
-        finishReconUi();
-      }
-    };
-
-    es.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data.text) appendConsole(data.text);
-        if (data.done) {
-          if (data.stopped) {
-            appendConsole('\n[gui] Stopped.\n');
-          } else if (data.ok) {
-            appendConsole('\n[gui] Finished OK\n');
-          } else {
-            appendConsole(`\n[gui] Finished with error: ${data.message || ''}\n`);
-          }
-          finishReconUi();
-        }
-      } catch {
-        appendConsole(ev.data + '\n');
-      }
-    };
-
-    es.onerror = () => {
-      if (!posted) appendConsole('\n[gui] Log stream failed to connect\n');
-      finishReconUi();
-    };
-  };
+  if (currentRunId) bindStream(currentRunId);
 
   $('#view-dashboard').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
+  $('#view-browse').style.display = 'none';
+  $('#view-text').style.display = 'none';
+  $('#view-project').style.display = 'block';
+}
+
+async function loadRunningList() {
+  showError('');
+  const data = await api('/api/runs').catch(() => ({ runs: [] }));
+  const runs = data.runs || [];
+  $('#view-project').innerHTML = `
+    <div class="panel" style="max-width:980px;margin:0 auto;">
+      <h2>Running instances</h2>
+      <ul class="explorer-list" style="max-height:520px;">
+        ${runs.map((r) => `
+          <li>
+            <span>
+              <strong>${escapeHtml(r.projectName || 'project')}</strong><br>
+              <span class="badge">${escapeHtml((r.steps || []).join(' -> ')) || 'steps'}</span>
+            </span>
+            <span class="row" style="gap:0.5rem">
+              <span class="meta">${escapeHtml(r.status || 'running')}</span>
+              <a class="btn secondary" href="#/running?project=${encodeURIComponent(r.projectName || '')}&runId=${encodeURIComponent(r.runId)}">Open console</a>
+            </span>
+          </li>`).join('') || '<li><span class="hint">No running instances right now.</span></li>'}
+      </ul>
+    </div>`;
+
+  $('#view-dashboard').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
   $('#view-browse').style.display = 'none';
   $('#view-text').style.display = 'none';
   $('#view-project').style.display = 'block';
@@ -718,6 +915,8 @@ function route() {
 
   $('#view-dashboard').style.display = 'none';
   $('#view-project').style.display = 'none';
+  $('#view-config').style.display = 'none';
+  $('#view-stats').style.display = 'none';
   $('#view-browse').style.display = 'none';
   $('#view-text').style.display = 'none';
 
@@ -727,6 +926,26 @@ function route() {
   }
   if (parsed.route === 'project') {
     void loadProject(parsed.name);
+    return;
+  }
+  if (parsed.route === 'projectInputs') {
+    void loadProjectInputs(parsed.name);
+    return;
+  }
+  if (parsed.route === 'config') {
+    void loadConfig();
+    return;
+  }
+  if (parsed.route === 'stats') {
+    loadStats();
+    return;
+  }
+  if (parsed.route === 'running') {
+    void loadRunning(parsed.project || '', parsed.runId || '');
+    return;
+  }
+  if (parsed.route === 'runningList') {
+    void loadRunningList();
     return;
   }
   if (parsed.route === 'browse') {

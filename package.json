@@ -2,15 +2,10 @@
   "name": "drishti",
   "version": "1.0.0",
   "description": "DRISHTI v1 — Modular, multi-engine SERP reconnaissance system",
-  "main": "main.js",
+  "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node main.js",
-    "bing": "node main.js --engine bing",
-    "duck": "node main.js --engine duckduckgo",
-    "clean": "node parser/cleaner.js",
-    "all": "bash scripts/run-all.sh",
-    "inspector": "bash scripts/run-inspector.sh",
+    "start": "node server.js",
     "gui": "node server.js"
   },
   "dependencies": {

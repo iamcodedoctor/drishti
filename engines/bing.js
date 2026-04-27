@@ -78,6 +78,7 @@ async function scrapeBingPage(page, keyword, pageNum, positionOffset) {
  */
 async function searchBing(page, keyword) {
   info(ENGINE, `Searching: "${keyword}" (up to ${cfg.maxPages} pages)`);
+  const baseOffset = Math.max(0, Math.floor(cfg.offset || 0));
   const allResults = [];
 
   try {
@@ -87,7 +88,7 @@ async function searchBing(page, keyword) {
     await randomDelay(500, 1000);
     await handleBingConsent(page);
 
-    const page1Results = await scrapeBingPage(page, keyword, 1, 0);
+    const page1Results = await scrapeBingPage(page, keyword, 1, baseOffset);
     allResults.push(...page1Results);
     info(ENGINE, `  Page 1: ${page1Results.length} results`);
 
@@ -104,7 +105,7 @@ async function searchBing(page, keyword) {
         await nextBtn.click();
         await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
 
-        const pageResults = await scrapeBingPage(page, keyword, p, allResults.length);
+        const pageResults = await scrapeBingPage(page, keyword, p, baseOffset + allResults.length);
         if (pageResults.length === 0) {
           debug(ENGINE, `  Page ${p}: no results — stopping pagination`);
           break;

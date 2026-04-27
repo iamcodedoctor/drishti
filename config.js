@@ -30,8 +30,30 @@ function applyScrapePagination(engines, scrape) {
     const override = per[name];
     if (typeof override === 'number' && override >= 1) {
       engines[name].maxPages = Math.floor(override);
+    } else if (override && typeof override === 'object' && typeof override.maxPages === 'number' && override.maxPages >= 1) {
+      engines[name].maxPages = Math.floor(override.maxPages);
     } else if (typeof globalMax === 'number' && globalMax >= 1) {
       engines[name].maxPages = Math.floor(globalMax);
+    }
+    if (override && typeof override === 'object' && typeof override.offset === 'number' && override.offset >= 0) {
+      engines[name].offset = Math.floor(override.offset);
+    }
+  }
+}
+
+function applyEnvOverrides(engines, env = process.env) {
+  const defs = [
+    ['bing', 'DRISHTI_BING_MAX_PAGES', 'DRISHTI_BING_OFFSET'],
+    ['duckduckgo', 'DRISHTI_DDG_MAX_PAGES', 'DRISHTI_DDG_OFFSET'],
+  ];
+  for (const [name, maxKey, offKey] of defs) {
+    const maxRaw = Number(env[maxKey]);
+    if (Number.isFinite(maxRaw) && maxRaw >= 1) {
+      engines[name].maxPages = Math.floor(maxRaw);
+    }
+    const offRaw = Number(env[offKey]);
+    if (Number.isFinite(offRaw) && offRaw >= 0) {
+      engines[name].offset = Math.floor(offRaw);
     }
   }
 }
@@ -41,6 +63,7 @@ const config = {
     bing: {
       maxQueries: 100,
       maxPages: 5,
+      offset: 0,
       headless: false,
       delay: { min: 800, max: 2000 },
       keystrokeDelay: { min: 30, max: 80 },
@@ -62,6 +85,7 @@ const config = {
     duckduckgo: {
       maxQueries: 200,
       maxPages: 5,
+      offset: 0,
       headless: false,
       delay: { min: 300, max: 1000 },
       keystrokeDelay: { min: 20, max: 50 },
@@ -85,6 +109,7 @@ const config = {
     dataDir: './data',
     keywords: './data/keywords.txt',
     blacklist: './data/blacklist.txt',
+    defaultBlacklist: './parser/default_blacklist_tranco_top10000.txt',
     rawResults: './data/raw_results.txt',
     cleanedResults: './data/cleaned_results.txt',
     logs: './data/logs.txt',
@@ -98,6 +123,7 @@ const config = {
 };
 
 applyScrapePagination(config.engines, loadScrapeConfig());
+applyEnvOverrides(config.engines);
 
 /**
  * Absolute path to a project folder: <cwd>/data/<projectName>

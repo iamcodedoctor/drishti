@@ -74,12 +74,15 @@ export function keepLastPerDomain(rows) {
  */
 export function finalizeCleanedRows(rows) {
   const rootOnly = filterRootUrlsOnly(rows);
-  const urlDeduped = dedupeByNormalizedUrl(rootOnly);
+  // Fallback: if strict root-only filtering removes everything, keep original rows.
+  // This prevents empty cleaned output for keywords where SERPs mostly return deep paths.
+  const base = rootOnly.length > 0 ? rootOnly : rows;
+  const urlDeduped = dedupeByNormalizedUrl(base);
   const domainDeduped = keepLastPerDomain(urlDeduped);
   return {
     final: domainDeduped,
     pathDropped: rows.length - rootOnly.length,
-    urlDropped: rootOnly.length - urlDeduped.length,
+    urlDropped: base.length - urlDeduped.length,
     domainDropped: urlDeduped.length - domainDeduped.length,
   };
 }

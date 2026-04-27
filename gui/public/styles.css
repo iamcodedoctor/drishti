@@ -45,11 +45,30 @@ header {
   background: var(--panel);
 }
 
-header h1 {
-  margin: 0;
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text);
+  text-decoration: none;
   font-size: 1.1rem;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand-logo {
+  width: 24px;
+  height: 24px;
+}
+
+#nav-global {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 main#main-shell {
@@ -207,6 +226,7 @@ main#main-shell.main--fs #error-banner {
 }
 
 input[type="text"],
+input[type="number"],
 textarea {
   width: 100%;
   padding: 0.65rem 0.75rem;
@@ -216,6 +236,23 @@ textarea {
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
+}
+
+.home-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.home-empty h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--muted);
+}
+
+.project-link {
+  font-weight: 600;
 }
 
 textarea {
@@ -259,6 +296,16 @@ button.secondary {
 
 button.secondary:hover:not(:disabled) {
   background: var(--border);
+}
+
+button.danger {
+  background: #b4232d;
+  border-color: #b4232d;
+  color: #fff;
+}
+
+button.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .project-list {
