@@ -1,0 +1,133 @@
+// DRISHTI v1 — Configuration
+// All tunable parameters live here. No magic numbers elsewhere.
+//
+// Pagination: edit scrape.config.json (maxPages for all engines, or perEngine overrides).
+// Null perEngine values inherit maxPages.
+
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function loadScrapeConfig() {
+  const path = join(__dirname, 'scrape.config.json');
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function applyScrapePagination(engines, scrape) {
+  if (!scrape || typeof scrape !== 'object') return;
+
+  const globalMax = scrape.maxPages;
+  const per = scrape.perEngine || {};
+
+  for (const name of Object.keys(engines)) {
+    const override = per[name];
+    if (typeof override === 'number' && override >= 1) {
+      engines[name].maxPages = Math.floor(override);
+    } else if (typeof globalMax === 'number' && globalMax >= 1) {
+      engines[name].maxPages = Math.floor(globalMax);
+    }
+  }
+}
+
+const config = {
+  engines: {
+    bing: {
+      maxQueries: 100,
+      maxPages: 5,
+      headless: false,
+      delay: { min: 800, max: 2000 },
+      keystrokeDelay: { min: 30, max: 80 },
+      behavior: {
+        humanType: false,
+        randomMouse: false,
+        randomScroll: false,
+        idle: false,
+      },
+      searchUrl: 'https://www.bing.com/',
+      searchInputSelector: '#sb_form_q',
+      resultSelector: 'li.b_algo',
+      titleSelector: 'h2 a',
+      linkSelector: 'h2 a',
+      snippetSelector: 'div.b_caption p, p.b_lineclamp2',
+      nextPageSelector: 'a.sb_pagN',
+    },
+
+    duckduckgo: {
+      maxQueries: 200,
+      maxPages: 5,
+      headless: false,
+      delay: { min: 300, max: 1000 },
+      keystrokeDelay: { min: 20, max: 50 },
+      behavior: {
+        humanType: false,
+        randomMouse: false,
+        randomScroll: false,
+        idle: false,
+      },
+      searchUrl: 'https://duckduckgo.com/',
+      searchInputSelector: 'input[name="q"]',
+      resultSelector: 'article[data-testid="result"]',
+      titleSelector: 'a[data-testid="result-title-a"]',
+      linkSelector: 'a[data-testid="result-title-a"]',
+      snippetSelector: 'div[data-testid="result-snippet"]',
+      moreResultsSelector: 'button#more-results',
+    },
+  },
+
+  paths: {
+    dataDir: './data',
+    keywords: './data/keywords.txt',
+    blacklist: './data/blacklist.txt',
+    rawResults: './data/raw_results.txt',
+    cleanedResults: './data/cleaned_results.txt',
+    logs: './data/logs.txt',
+  },
+
+  browser: {
+    defaultViewport: { width: 1366, height: 768 },
+    proxy: null,
+    captchaTimeout: 120, // seconds to wait for manual CAPTCHA solve
+  },
+};
+
+applyScrapePagination(config.engines, loadScrapeConfig());
+
+/**
+ * Absolute path to a project folder: <cwd>/data/<projectName>
+ */
+export function resolveProjectRoot(projectName, cwd = process.cwd()) {
+  return join(cwd, 'data', projectName);
+}
+
+/**
+ * Point all drishti paths at data/<projectName>/ (keywords, blacklist, raw, cleaned, logs).
+ */
+export function applyProjectByName(projectName, cwd = process.cwd()) {
+  const root = resolveProjectRoot(projectName, cwd);
+  mkdirSync(root, { recursive: true });
+  config.paths.dataDir = root;
+  config.paths.keywords = join(root, 'keywords.txt');
+  config.paths.blacklist = join(root, 'blacklist.txt');
+  config.paths.rawResults = join(root, 'raw_results.txt');
+  config.paths.cleanedResults = join(root, 'cleaned_results.txt');
+  config.paths.logs = join(root, 'logs.txt');
+}
+
+/**
+ * After applyProjectByName: write SERP outputs to tmp_* files instead of canonical names.
+ */
+export function applyTmpResultPaths() {
+  const d = config.paths.dataDir;
+  config.paths.rawResults = join(d, 'tmp_raw_results.txt');
+  config.paths.cleanedResults = join(d, 'tmp_cleaned_results.txt');
+  config.paths.logs = join(d, 'tmp_logs.txt');
+}
+
+export default config;

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DRISHTI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>DRISHTI</h1>
+      <nav id="nav-global"></nav>
+    </header>
+    <main id="main-shell">
+      <div id="error-banner" class="error-banner"></div>
+      <div id="view-dashboard" class="view"></div>
+      <div id="view-project" class="view" style="display: none"></div>
+      <div id="view-browse" class="view view-fs" style="display: none"></div>
+      <div id="view-text" class="view view-fs" style="display: none"></div>
+    </main>
+    <div id="image-modal" class="image-modal" aria-hidden="true">
+      <div class="image-modal-backdrop" id="image-modal-backdrop"></div>
+      <div class="image-modal-inner">
+        <button type="button" class="image-modal-close" id="image-modal-close" aria-label="Close">×</button>
+        <div class="image-modal-toolbar">
+          <button type="button" class="secondary" id="image-modal-prev">← Prev</button>
+          <span id="image-modal-caption"></span>
+          <button type="button" class="secondary" id="image-modal-next">Next →</button>
+        </div>
+        <div class="image-modal-stage">
+          <img id="image-modal-img" alt="" />
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

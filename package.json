@@ -1,0 +1,31 @@
+{
+  "name": "drishti",
+  "version": "1.0.0",
+  "description": "DRISHTI v1 — Modular, multi-engine SERP reconnaissance system",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node main.js",
+    "bing": "node main.js --engine bing",
+    "duck": "node main.js --engine duckduckgo",
+    "clean": "node parser/cleaner.js",
+    "all": "bash scripts/run-all.sh",
+    "inspector": "bash scripts/run-inspector.sh",
+    "gui": "node server.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "express": "^4.21.2",
+    "playwright": "^1.59.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}
