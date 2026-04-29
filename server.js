@@ -29,7 +29,7 @@ const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 /** Legacy / global inspector output at repo root — not a user project. */
 const HIDDEN_PROJECT_DIRS = new Set(['recon']);
 
-const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'inspector'];
+const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'inspector', 'enum'];
 
 const SCRAPE_ENGINE_ENV = {
   bing: { maxPages: 'DRISHTI_BING_MAX_PAGES', offset: 'DRISHTI_BING_OFFSET' },
@@ -327,6 +327,7 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
   const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo' || s === 'google');
   const runClean = sorted.includes('clean');
   const runInspector = sorted.includes('inspector');
+  const runEnum = sorted.includes('enum');
   const needsKeywords = scraping.length > 0 || runClean;
   const kwTrim = String(keywordsText).trim();
 
@@ -419,6 +420,13 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
   if (runInspector && !isRunAborted(runId)) {
     emitRunLog(runId, `\n[gui] ▶ inspector (GHOST_PROJECT_DIR=${root})\n`);
     await runCmd(runId, process.execPath, ['inspector/main.js'], {
+      GHOST_PROJECT_DIR: root,
+    });
+  }
+
+  if (runEnum && !isRunAborted(runId)) {
+    emitRunLog(runId, `\n[gui] ▶ enum (GHOST_PROJECT_DIR=${root})\n`);
+    await runCmd(runId, process.execPath, ['enum/main.js'], {
       GHOST_PROJECT_DIR: root,
     });
   }

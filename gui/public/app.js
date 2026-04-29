@@ -803,6 +803,7 @@ async function loadProjectInputs(name) {
         <label class="chk"><input type="checkbox" name="step" value="google" /> Google</label>
         <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean</label>
         <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
+        <label class="chk" style="margin-top: 6px; display: block;"><input type="checkbox" name="step" value="enum" /> Enum (LLM Contact Extractor)</label>
       </div>
       <div id="run-config-preview"></div>
       <div class="row" style="margin-top:1rem">
@@ -859,6 +860,7 @@ async function loadProjectInputs(name) {
       );
     }
     if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
+    if (steps.includes('enum')) blocks.push('<div class="hint">Enum selected: brute-forces contacts and extracts via LLM.</div>');
     $('#run-config-preview').innerHTML = blocks.length
       ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
       : '';
