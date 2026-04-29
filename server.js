@@ -29,7 +29,10 @@ const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 /** Legacy / global inspector output at repo root — not a user project. */
 const HIDDEN_PROJECT_DIRS = new Set(['recon']);
 
-const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'inspector'];
+// Main recon pipeline steps (in execution order).
+// "prefilter" is a fast, HTTP/HTML-based triage stage that reduces domains
+// before deep "inspector" runs.
+const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'prefilter', 'ai_classification', 'inspector'];
 
 const SCRAPE_ENGINE_ENV = {
   bing: { maxPages: 'DRISHTI_BING_MAX_PAGES', offset: 'DRISHTI_BING_OFFSET' },
@@ -42,6 +45,10 @@ const READABLE_FILES = new Set([
   'blacklist.txt',
   'raw_results.txt',
   'cleaned_results.txt',
+  'cleaned_domains.txt',
+  'prefilter.txt',
+  'ai_qualification.txt',
+  'ai_qualification_cache.json',
   'logs.txt',
   'tmp_raw_results.txt',
   'tmp_cleaned_results.txt',
@@ -326,6 +333,8 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
   const sorted = STEP_ORDER.filter((s) => steps.includes(s));
   const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo' || s === 'google');
   const runClean = sorted.includes('clean');
+  const runPrefilter = sorted.includes('prefilter');
+  const runAiClassification = sorted.includes('ai_classification');
   const runInspector = sorted.includes('inspector');
   const needsKeywords = scraping.length > 0 || runClean;
   const kwTrim = String(keywordsText).trim();
@@ -416,11 +425,28 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
     }
   }
 
-  if (runInspector && !isRunAborted(runId)) {
-    emitRunLog(runId, `\n[gui] ▶ inspector (GHOST_PROJECT_DIR=${root})\n`);
-    await runCmd(runId, process.execPath, ['inspector/main.js'], {
+  if (runPrefilter && !isRunAborted(runId)) {
+    emitRunLog(runId, `\n[gui] ▶ prefilter (GHOST_PROJECT_DIR=${root})\n`);
+    await runCmd(runId, process.execPath, ['parser/prefilter.js', '--project', projectName], {
+      // Uses canonical files under data/<project>/.
       GHOST_PROJECT_DIR: root,
     });
+  }
+
+  if (runAiClassification && !isRunAborted(runId)) {
+    emitRunLog(runId, `\n[gui] ▶ ai_classification (GHOST_PROJECT_DIR=${root})\n`);
+    await runCmd(runId, process.execPath, ['parser/aiQualification.js', '--project', projectName], {
+      GHOST_PROJECT_DIR: root,
+    });
+  }
+
+  if (runInspector && !isRunAborted(runId)) {
+    emitRunLog(runId, `\n[gui] ▶ inspector (GHOST_PROJECT_DIR=${root})\n`);
+    const inspectorEnv = { GHOST_PROJECT_DIR: root };
+    // If this run generated prefilter, only inspect the remaining quality domains.
+    if (runPrefilter) inspectorEnv.DRISHTI_INSPECTOR_USE_PREFILTER = '1';
+    if (runAiClassification) inspectorEnv.DRISHTI_INSPECTOR_USE_AI_CLASSIFICATION = '1';
+    await runCmd(runId, process.execPath, ['inspector/main.js'], inspectorEnv);
   }
 
   if (isRunAborted(runId)) throw new Error('STOPPED');

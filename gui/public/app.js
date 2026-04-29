@@ -165,7 +165,9 @@ function trimUrlMatch(raw) {
  */
 function linkifyPlainTextToHtml(raw) {
   if (!raw) return '';
-  const re = /\bhttps?:\/\/[^\s<>'"]+/gi;
+  // Exclude ')' so markdown-style links like: [x](https://example.com)
+  // keep their closing paren in the viewer output.
+  const re = /\bhttps?:\/\/[^\s<>'")]+/gi;
   let out = '';
   let i = 0;
   let m;
@@ -797,12 +799,31 @@ async function loadProjectInputs(name) {
       <textarea id="fld-keywords" placeholder="# one keyword per line"></textarea>
       <label class="hint" for="fld-blacklist" style="display:block;margin-top:1rem">blacklist</label>
       <textarea id="fld-blacklist" placeholder="# one domain per line"></textarea>
-      <div class="chk-wrap" style="margin-top:1rem">
-        <label class="chk"><input type="checkbox" name="step" value="bing" /> Bing</label>
-        <label class="chk"><input type="checkbox" name="step" value="duckduckgo" /> DuckDuckGo</label>
-        <label class="chk"><input type="checkbox" name="step" value="google" /> Google</label>
-        <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean</label>
-        <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
+      <div style="margin-top:1rem">
+        <div class="panel" style="margin-bottom:0.75rem;padding:0.75rem 0.9rem">
+          <h2 style="font-size:1.05rem;margin:0 0 0.5rem">Scraping</h2>
+          <div class="chk-wrap">
+            <label class="chk"><input type="checkbox" name="step" value="bing" /> Bing</label>
+            <label class="chk"><input type="checkbox" name="step" value="duckduckgo" /> DuckDuckGo</label>
+            <label class="chk"><input type="checkbox" name="step" value="google" /> Google</label>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom:0.75rem;padding:0.75rem 0.9rem">
+          <h2 style="font-size:1.05rem;margin:0 0 0.5rem">Cleaning and Recon</h2>
+          <div class="chk-wrap">
+            <label class="chk"><input type="checkbox" name="step" value="clean" /> Deduplication and clean</label>
+            <label class="chk"><input type="checkbox" name="step" value="prefilter" /> Prefilter</label>
+            <label class="chk"><input type="checkbox" name="step" value="ai_classification" /> AI Classification</label>
+          </div>
+        </div>
+
+        <div class="panel" style="padding:0.75rem 0.9rem">
+          <h2 style="font-size:1.05rem;margin:0 0 0.5rem">Inspection</h2>
+          <div class="chk-wrap">
+            <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
+          </div>
+        </div>
       </div>
       <div id="run-config-preview"></div>
       <div class="row" style="margin-top:1rem">
@@ -855,10 +876,28 @@ async function loadProjectInputs(name) {
     }
     if (steps.includes('clean')) {
       blocks.push(
-        '<div class="hint">Clean: raw results + merged blacklist (repo default list and project <code>blacklist.txt</code>, both apply). A listed host also blocks its subdomains (e.g. <code>acme.com</code> blocks <code>test.acme.com</code>), not other suffixes like <code>acme.in</code>.</div>',
+        '<div class="hint">Deduplication and clean: raw results + merged blacklist (repo default list and project <code>blacklist.txt</code>, both apply). A listed host also blocks its subdomains (e.g. <code>acme.com</code> blocks <code>test.acme.com</code>), not other suffixes like <code>acme.in</code>.</div>',
       );
     }
-    if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
+    if (steps.includes('prefilter')) {
+      blocks.push(
+        '<div class="hint">Prefilter: fast HTTP/HTML triage that writes <code>cleaned_domains.txt</code> + <code>prefilter.txt</code>, then reduces domains for inspection.</div>',
+      );
+    }
+    if (steps.includes('ai_classification')) {
+      blocks.push(
+        '<div class="hint">AI Classification: LLM-based lead qualification from <code>prefilter.txt</code> (OpenAI-compatible API). Config lives in <code>llm.config.json</code>. Writes <code>ai_qualification.txt</code> and cached responses in <code>ai_qualification_cache.json</code>.</div>',
+      );
+    }
+    if (steps.includes('inspector')) {
+      if (steps.includes('ai_classification')) {
+        blocks.push('<div class="hint">Inspector selected: uses AI-qualified domains (status != <code>reject</code>) for deep analysis.</div>');
+      } else if (steps.includes('prefilter')) {
+        blocks.push('<div class="hint">Inspector selected: uses prefilter to inspect only quality domains.</div>');
+      } else {
+        blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
+      }
+    }
     $('#run-config-preview').innerHTML = blocks.length
       ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
       : '';

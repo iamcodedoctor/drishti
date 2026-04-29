@@ -81,7 +81,10 @@ main#main-shell {
   width: 100%;
   margin: 0 auto;
   padding: 1.5rem;
-  overflow: hidden;
+  /* Allow wheel/keyboard scrolling if a view exceeds viewport height.
+     Individual views (e.g. file browser, console) also manage their own scroll areas. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 main#main-shell.main--fs {
