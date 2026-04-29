@@ -1,6 +1,8 @@
 // DRISHTI v1 — Result Normalizer
 // Converts raw extracted results into a uniform schema.
 
+import { resolveUrl } from './resolver.js';
+
 /**
  * Extract domain from a URL.
  * @param {string} url
@@ -22,11 +24,12 @@ function extractDomain(url) {
  * @returns {{ engine: string, keyword: string, domain: string, url: string, title: string, position: number }}
  */
 export function normalizeResult(raw, engine, keyword) {
+  const url = resolveUrl(raw.url);
   return {
     engine,
     keyword: keyword.trim(),
-    domain: extractDomain(raw.url),
-    url: raw.url,
+    domain: extractDomain(url),
+    url,
     title: raw.title,
     position: raw.position,
   };

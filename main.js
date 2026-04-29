@@ -1,5 +1,5 @@
 // DRISHTI v1 — Main Entry Point
-// CLI: node main.js --engine <bing|duckduckgo> [--output <dir> | --project <name> [--tmp-run] [--truncate-tmp]]
+// CLI: node main.js --engine <bing|duckduckgo|google> [--output <dir> | --project <name> [--tmp-run] [--truncate-tmp]]
 
 import { readFileSync, mkdirSync, writeFileSync, existsSync, openSync, closeSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -8,11 +8,13 @@ import config, { applyProjectByName, applyTmpResultPaths } from './config.js';
 
 import { runBing } from './engines/bing.js';
 import { runDuckDuckGo } from './engines/duckduckgo.js';
+import { runGoogle } from './engines/google.js';
 
 const ENGINE_MAP = {
   bing: runBing,
   duckduckgo: runDuckDuckGo,
   duck: runDuckDuckGo,
+  google: runGoogle,
 };
 
 const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -27,13 +29,13 @@ function parseArgs() {
   const engineIndex = args.indexOf('--engine');
   if (engineIndex === -1 || !args[engineIndex + 1]) {
     console.error(
-      'Usage: node main.js --engine <bing|duckduckgo> [--output <dir> | --project <name> [--tmp-run]]',
+      'Usage: node main.js --engine <bing|duckduckgo|google> [--output <dir> | --project <name> [--tmp-run]]',
     );
     process.exit(1);
   }
   const engine = args[engineIndex + 1].toLowerCase();
   if (!ENGINE_MAP[engine]) {
-    console.error(`Unknown engine: "${engine}". Available: bing, duckduckgo`);
+    console.error(`Unknown engine: "${engine}". Available: bing, duckduckgo, google`);
     process.exit(1);
   }
 

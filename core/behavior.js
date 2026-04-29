@@ -76,3 +76,77 @@ export async function idle(page, duration = { min: 3000, max: 8000 }) {
   }
   await randomDelay(duration.min, duration.max);
 }
+
+/**
+ * Scroll in short, uneven wheel bursts (SERP-style reading).
+ * @param {import('playwright').Page} page
+ */
+export async function humanUnevenScroll(page) {
+  const bursts = Math.floor(Math.random() * 5) + 4;
+  for (let i = 0; i < bursts; i++) {
+    const down = Math.random() > 0.12;
+    const delta = Math.floor(Math.random() * 140) + 35;
+    await page.mouse.wheel(0, down ? delta : -Math.floor(delta * 0.55));
+    await randomDelay(60, 420);
+    if (Math.random() < 0.22) await randomDelay(180, 900);
+  }
+}
+
+/**
+ * Move pointer toward an element with slight overshoot, then correct (reaching for a link).
+ * @param {import('playwright').Page} page
+ * @param {import('playwright').ElementHandle|null} el
+ * @param {{ overshoot?: number }} opts
+ */
+export async function humanHoverElement(page, el, opts = {}) {
+  if (!el) return;
+  const box = await el.boundingBox();
+  if (!box) return;
+  const overshoot = opts.overshoot ?? 10 + Math.floor(Math.random() * 8);
+  const tx = box.x + box.width * (0.28 + Math.random() * 0.44);
+  const ty = box.y + box.height * (0.25 + Math.random() * 0.5);
+  const vp = page.viewportSize() || { width: 1366, height: 768 };
+  const fx = Math.floor(Math.random() * vp.width * 0.25) + 40;
+  const fy = Math.floor(Math.random() * vp.height * 0.35) + 40;
+  await page.mouse.move(fx, fy, { steps: 2 });
+  const missX = tx + (Math.random() - 0.5) * overshoot * 2;
+  const missY = ty + (Math.random() - 0.5) * overshoot * 2;
+  await page.mouse.move(missX, missY, {
+    steps: 12 + Math.floor(Math.random() * 18),
+  });
+  await randomDelay(40, 220);
+  await page.mouse.move(tx, ty, { steps: 6 + Math.floor(Math.random() * 12) });
+}
+
+/**
+ * Focus control via mouse move + click at a point inside the element box.
+ * @param {import('playwright').Page} page
+ * @param {import('playwright').ElementHandle|null} el
+ */
+export async function humanClickElement(page, el) {
+  if (!el) return;
+  await humanHoverElement(page, el);
+  await randomDelay(80, 320);
+  const box = await el.boundingBox();
+  if (!box) return;
+  const cx = box.x + box.width * (0.35 + Math.random() * 0.3);
+  const cy = box.y + box.height * (0.35 + Math.random() * 0.3);
+  await page.mouse.click(cx, cy);
+}
+
+/**
+ * Type text with per-key delays after the active element is already focused.
+ * @param {import('playwright').Page} page
+ * @param {string} text
+ * @param {{ min: number, max: number }} keystrokeDelay
+ */
+export async function humanTypeFocused(page, text, keystrokeDelay = { min: 80, max: 220 }) {
+  for (const char of text) {
+    await page.keyboard.type(char, { delay: 0 });
+    const pause =
+      Math.floor(Math.random() * (keystrokeDelay.max - keystrokeDelay.min + 1)) +
+      keystrokeDelay.min;
+    await new Promise((r) => setTimeout(r, pause));
+    if (Math.random() < 0.06) await randomDelay(280, 750);
+  }
+}

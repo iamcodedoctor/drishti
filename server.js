@@ -28,7 +28,13 @@ const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 /** Legacy / global inspector output at repo root — not a user project. */
 const HIDDEN_PROJECT_DIRS = new Set(['recon']);
 
-const STEP_ORDER = ['bing', 'duckduckgo', 'clean', 'inspector'];
+const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'inspector'];
+
+const SCRAPE_ENGINE_ENV = {
+  bing: { maxPages: 'DRISHTI_BING_MAX_PAGES', offset: 'DRISHTI_BING_OFFSET' },
+  duckduckgo: { maxPages: 'DRISHTI_DDG_MAX_PAGES', offset: 'DRISHTI_DDG_OFFSET' },
+  google: { maxPages: 'DRISHTI_GOOGLE_MAX_PAGES', offset: 'DRISHTI_GOOGLE_OFFSET' },
+};
 
 const READABLE_FILES = new Set([
   'keywords.txt',
@@ -127,7 +133,7 @@ function sanitizeScrapeSettings(input) {
     return Math.min(v, 5000);
   };
   const per = src.perEngine && typeof src.perEngine === 'object' ? src.perEngine : {};
-  for (const key of ['bing', 'duckduckgo']) {
+  for (const key of ['bing', 'duckduckgo', 'google']) {
     const raw = per[key];
     let maxPages = null;
     let offset = 0;
@@ -317,7 +323,7 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
   ensureTmpFiles(root);
 
   const sorted = STEP_ORDER.filter((s) => steps.includes(s));
-  const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo');
+  const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo' || s === 'google');
   const runClean = sorted.includes('clean');
   const runInspector = sorted.includes('inspector');
   const needsKeywords = scraping.length > 0 || runClean;
@@ -372,25 +378,18 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
 
   for (const eng of scraping) {
     if (isRunAborted(runId)) throw new Error('STOPPED');
-    const engineFlag = eng === 'bing' ? 'bing' : 'duckduckgo';
-    const args = [
-      'main.js',
-      '--engine',
-      engineFlag,
-      '--project',
-      projectName,
-      '--tmp-run',
-    ];
+    const args = ['main.js', '--engine', eng, '--project', projectName, '--tmp-run'];
     if (useTmpSerp && firstEngine) {
       args.push('--truncate-tmp');
     }
-    const per = runConfig?.[engineFlag] && typeof runConfig[engineFlag] === 'object' ? runConfig[engineFlag] : {};
+    const per = runConfig?.[eng] && typeof runConfig[eng] === 'object' ? runConfig[eng] : {};
+    const envNames = SCRAPE_ENGINE_ENV[eng];
     const extraEnv = {};
-    if (typeof per.maxPages === 'number' && per.maxPages >= 1) {
-      extraEnv[engineFlag === 'bing' ? 'DRISHTI_BING_MAX_PAGES' : 'DRISHTI_DDG_MAX_PAGES'] = String(Math.floor(per.maxPages));
+    if (envNames && typeof per.maxPages === 'number' && per.maxPages >= 1) {
+      extraEnv[envNames.maxPages] = String(Math.floor(per.maxPages));
     }
-    if (typeof per.offset === 'number' && per.offset >= 0) {
-      extraEnv[engineFlag === 'bing' ? 'DRISHTI_BING_OFFSET' : 'DRISHTI_DDG_OFFSET'] = String(Math.floor(per.offset));
+    if (envNames && typeof per.offset === 'number' && per.offset >= 0) {
+      extraEnv[envNames.offset] = String(Math.floor(per.offset));
     }
     firstEngine = false;
     emitRunLog(runId, `\n[gui] ▶ node ${args.join(' ')}\n`);
@@ -599,16 +598,18 @@ app.post('/api/projects/:name/recon', (req, res) => {
     return res.status(400).json({ error: 'Select at least one step' });
   }
 
-  const needsKw = stepList.some((s) => s === 'bing' || s === 'duckduckgo' || s === 'clean');
+  const needsKw = stepList.some((s) =>
+    s === 'bing' || s === 'duckduckgo' || s === 'google' || s === 'clean',
+  );
   const kwTrim = String(keywords).trim();
   if (needsKw && !kwTrim) {
-    return res.status(400).json({ error: 'Keywords required for Bing, DuckDuckGo, or Clean' });
+    return res.status(400).json({ error: 'Keywords required for scrape engines or Clean' });
   }
 
   res.json({ ok: true, started: true });
 
   const safeRunConfig = {};
-  for (const key of ['bing', 'duckduckgo']) {
+  for (const key of ['bing', 'duckduckgo', 'google']) {
     const raw = runConfig?.[key];
     if (!raw || typeof raw !== 'object') continue;
     const obj = {};

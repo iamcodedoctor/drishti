@@ -353,7 +353,10 @@ async function loadDashboard() {
 
 async function loadConfig() {
   showError('');
-  let scrapeSettings = { maxPages: 2, perEngine: { bing: { offset: 0 }, duckduckgo: { offset: 0 } } };
+  let scrapeSettings = {
+    maxPages: 2,
+    perEngine: { bing: { offset: 0 }, duckduckgo: { offset: 0 }, google: { offset: 0 } },
+  };
   let settingsLoadError = '';
   try {
     const loaded = await getScrapeSettings();
@@ -365,6 +368,7 @@ async function loadConfig() {
   }
   const bing = scrapeSettings.perEngine?.bing || {};
   const ddg = scrapeSettings.perEngine?.duckduckgo || {};
+  const google = scrapeSettings.perEngine?.google || {};
 
   $('#view-config').innerHTML = `
     <div class="panel">
@@ -384,13 +388,23 @@ async function loadConfig() {
           <input id="cfg-bing-offset" type="number" min="0" max="5000" value="${escapeHtml(String(bing.offset ?? 0))}" style="max-width: 140px" />
         </div>
       </div>
-      <div class="panel">
+      <div class="panel" style="margin-bottom: 0.75rem">
         <h2>DuckDuckGo</h2>
         <div class="row" style="gap:0.75rem; flex-wrap: wrap">
           <label class="hint" for="cfg-ddg-pages">Pages</label>
           <input id="cfg-ddg-pages" type="number" min="1" max="50" value="${escapeHtml(String(ddg.maxPages || ''))}" placeholder="inherit global" style="max-width: 140px" />
           <label class="hint" for="cfg-ddg-offset">Offset</label>
           <input id="cfg-ddg-offset" type="number" min="0" max="5000" value="${escapeHtml(String(ddg.offset ?? 0))}" style="max-width: 140px" />
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Google</h2>
+        <p class="hint">Slower, pointer-driven session — solve CAPTCHAs manually if shown.</p>
+        <div class="row" style="gap:0.75rem; flex-wrap: wrap">
+          <label class="hint" for="cfg-google-pages">Pages</label>
+          <input id="cfg-google-pages" type="number" min="1" max="50" value="${escapeHtml(String(google.maxPages || ''))}" placeholder="inherit global" style="max-width: 140px" />
+          <label class="hint" for="cfg-google-offset">Offset</label>
+          <input id="cfg-google-offset" type="number" min="0" max="5000" value="${escapeHtml(String(google.offset ?? 0))}" style="max-width: 140px" />
         </div>
       </div>
       <div class="row" style="margin-top: 0.9rem">
@@ -410,6 +424,10 @@ async function loadConfig() {
           duckduckgo: {
             maxPages: $('#cfg-ddg-pages').value.trim() ? Number($('#cfg-ddg-pages').value) : null,
             offset: Number($('#cfg-ddg-offset').value || 0),
+          },
+          google: {
+            maxPages: $('#cfg-google-pages').value.trim() ? Number($('#cfg-google-pages').value) : null,
+            offset: Number($('#cfg-google-offset').value || 0),
           },
         },
       };
@@ -690,6 +708,7 @@ async function loadProjectInputs(name) {
       <div class="chk-wrap" style="margin-top:1rem">
         <label class="chk"><input type="checkbox" name="step" value="bing" /> Bing</label>
         <label class="chk"><input type="checkbox" name="step" value="duckduckgo" /> DuckDuckGo</label>
+        <label class="chk"><input type="checkbox" name="step" value="google" /> Google</label>
         <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean</label>
         <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
       </div>
@@ -715,7 +734,8 @@ async function loadProjectInputs(name) {
           <input id="run-bing-pages" type="number" min="1" max="50" value="${escapeHtml(String(cfg.maxPages || scrapeSettings.maxPages || 2))}" style="max-width:120px" />
           <label class="hint" for="run-bing-offset">Offset</label>
           <input id="run-bing-offset" type="number" min="0" max="5000" value="${escapeHtml(String(cfg.offset || 0))}" style="max-width:120px" />
-        </div>`);
+        </div>
+        <p class="hint" style="margin:0 0 0.5rem">Offset = SERP pages to open <em>without</em> saving URLs; Pages = how many SERP pages to extract after that (e.g. offset 2 + pages 3 → use results from SERP pages 3–5).</p>`);
     }
     if (steps.includes('duckduckgo')) {
       const cfg = defaults.duckduckgo || {};
@@ -726,7 +746,20 @@ async function loadProjectInputs(name) {
           <input id="run-ddg-pages" type="number" min="1" max="50" value="${escapeHtml(String(cfg.maxPages || scrapeSettings.maxPages || 2))}" style="max-width:120px" />
           <label class="hint" for="run-ddg-offset">Offset</label>
           <input id="run-ddg-offset" type="number" min="0" max="5000" value="${escapeHtml(String(cfg.offset || 0))}" style="max-width:120px" />
-        </div>`);
+        </div>
+        <p class="hint" style="margin:0 0 0.5rem">Offset = “More results” loads to view without saving; Pages = batches to extract after (same idea as Bing page windows).</p>`);
+    }
+    if (steps.includes('google')) {
+      const cfg = defaults.google || {};
+      blocks.push(`
+        <div class="row" style="margin-bottom:0.5rem">
+          <strong>Google</strong>
+          <label class="hint" for="run-google-pages">Pages</label>
+          <input id="run-google-pages" type="number" min="1" max="50" value="${escapeHtml(String(cfg.maxPages || scrapeSettings.maxPages || 2))}" style="max-width:120px" />
+          <label class="hint" for="run-google-offset">Offset</label>
+          <input id="run-google-offset" type="number" min="0" max="5000" value="${escapeHtml(String(cfg.offset || 0))}" style="max-width:120px" />
+        </div>
+        <p class="hint" style="margin:0 0 0.5rem">Google: always opens google.com and types the query. Offset = SERP pages to scroll through <em>without</em> saving URLs; Pages = SERP pages to extract after. Example: offset 2 + pages 3 → visit pages 1–2 with no extract, then save URLs from pages 3–5.</p>`);
     }
     if (steps.includes('clean')) blocks.push('<div class="hint">Clean selected: uses current project raw results + blacklist.</div>');
     if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
@@ -758,9 +791,9 @@ async function loadProjectInputs(name) {
   $('#btn-recon').onclick = async () => {
     const steps = [...document.querySelectorAll('input[name="step"]:checked')].map((x) => x.value);
     if (!steps.length) return showError('Select at least one step');
-    const needsKw = steps.some((s) => ['bing', 'duckduckgo', 'clean'].includes(s));
+    const needsKw = steps.some((s) => ['bing', 'duckduckgo', 'google', 'clean'].includes(s));
     const kw = $('#fld-keywords').value.trim();
-    if (needsKw && !kw) return showError('Keywords required for Bing, DuckDuckGo, or Clean');
+    if (needsKw && !kw) return showError('Keywords required for scrape engines or Clean');
     const runId = crypto.randomUUID();
     try {
       const runConfig = {};
@@ -774,6 +807,12 @@ async function loadProjectInputs(name) {
         runConfig.duckduckgo = {
           maxPages: Number($('#run-ddg-pages')?.value || scrapeSettings.maxPages || 2),
           offset: Number($('#run-ddg-offset')?.value || 0),
+        };
+      }
+      if (steps.includes('google')) {
+        runConfig.google = {
+          maxPages: Number($('#run-google-pages')?.value || scrapeSettings.maxPages || 2),
+          offset: Number($('#run-google-offset')?.value || 0),
         };
       }
       await api(`/api/projects/${encodeURIComponent(name)}/recon`, {

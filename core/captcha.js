@@ -20,6 +20,10 @@ export async function hasCaptcha(page) {
       return true;
     }
 
+    if (/google\.[^/]+\/sorry/i.test(url)) {
+      return true;
+    }
+
     // Generic CAPTCHA indicators
     const captchaSelectors = [
       'iframe[src*="recaptcha"]',

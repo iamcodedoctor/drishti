@@ -7,6 +7,9 @@
     "duckduckgo": {
       "offset": 0,
       "maxPages": 2
+    },
+    "google": {
+      "offset": 0
     }
   }
 }

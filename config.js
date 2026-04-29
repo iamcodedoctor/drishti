@@ -1,7 +1,7 @@
 // DRISHTI v1 — Configuration
 // All tunable parameters live here. No magic numbers elsewhere.
 //
-// Pagination: edit scrape.config.json (maxPages for all engines, or perEngine overrides).
+// Pagination: scrape.config.json sets maxPages (extract) and offset (pages/batches to skip without extracting).
 // Null perEngine values inherit maxPages.
 
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -45,6 +45,7 @@ function applyEnvOverrides(engines, env = process.env) {
   const defs = [
     ['bing', 'DRISHTI_BING_MAX_PAGES', 'DRISHTI_BING_OFFSET'],
     ['duckduckgo', 'DRISHTI_DDG_MAX_PAGES', 'DRISHTI_DDG_OFFSET'],
+    ['google', 'DRISHTI_GOOGLE_MAX_PAGES', 'DRISHTI_GOOGLE_OFFSET'],
   ];
   for (const [name, maxKey, offKey] of defs) {
     const maxRaw = Number(env[maxKey]);
@@ -63,6 +64,7 @@ const config = {
     bing: {
       maxQueries: 100,
       maxPages: 5,
+      /** Result pages to open without extracting, then scrape maxPages pages (e.g. offset 2 + pages 3 → SERP 3–5). */
       offset: 0,
       headless: false,
       delay: { min: 800, max: 2000 },
@@ -85,6 +87,7 @@ const config = {
     duckduckgo: {
       maxQueries: 200,
       maxPages: 5,
+      /** “More results” clicks to skip without extracting, then take maxPages batches. */
       offset: 0,
       headless: false,
       delay: { min: 300, max: 1000 },
@@ -102,6 +105,30 @@ const config = {
       linkSelector: 'a[data-testid="result-title-a"]',
       snippetSelector: 'div[data-testid="result-snippet"]',
       moreResultsSelector: 'button#more-results',
+    },
+
+    google: {
+      maxQueries: 80,
+      maxPages: 5,
+      /** SERP pages to visit (scroll/human) without extracting, after homepage search; then scrape maxPages pages. */
+      offset: 0,
+      headless: false,
+      delay: { min: 1100, max: 2800 },
+      keystrokeDelay: { min: 55, max: 140 },
+      behavior: {
+        humanType: true,
+        randomMouse: true,
+        randomScroll: true,
+        idle: true,
+        openRandomTabs: true,
+      },
+      searchUrl: 'https://www.google.com/',
+      searchInputSelector: 'textarea[name="q"], input[name="q"]',
+      resultSelector: 'div#rso div.g',
+      titleSelector: 'h3',
+      linkSelector: 'a:has(h3)',
+      snippetSelector: '.VwiC3b, .yXK7nf, .IsZvec, .lEBKkf, span.st, div[data-sncf] span',
+      nextPageSelector: 'a#pnnext',
     },
   },
 

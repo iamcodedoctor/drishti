@@ -48,6 +48,45 @@ export function isBingTrackingUrl(url) {
 }
 
 /**
+ * Decode Google SERP redirect wrappers (/url?q=… or /url?url=…).
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+export function resolveGoogleUrl(rawUrl) {
+  try {
+    const base = rawUrl.startsWith('http') ? undefined : 'https://www.google.com';
+    const u = new URL(rawUrl, base);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host !== 'google.com') return rawUrl;
+    if (u.pathname !== '/url') return rawUrl;
+
+    const q = u.searchParams.get('q');
+    if (q && /^https?:\/\//i.test(q)) return decodeURIComponent(q);
+
+    const nested = u.searchParams.get('url');
+    if (nested && /^https?:\/\//i.test(nested)) return decodeURIComponent(nested);
+
+    return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function isGoogleRedirectUrl(url) {
+  try {
+    const u = new URL(url, 'https://www.google.com');
+    const host = u.hostname.replace(/^www\./, '');
+    return host === 'google.com' && u.pathname === '/url';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve any URL — if it's a Bing tracking URL, decode it. Otherwise return as-is.
  * @param {string} url
  * @returns {string}
@@ -55,6 +94,9 @@ export function isBingTrackingUrl(url) {
 export function resolveUrl(url) {
   if (isBingTrackingUrl(url)) {
     return resolveBingUrl(url);
+  }
+  if (isGoogleRedirectUrl(url)) {
+    return resolveGoogleUrl(url);
   }
   return url;
 }

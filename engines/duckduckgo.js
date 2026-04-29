@@ -24,76 +24,99 @@ async function checkAndSolveCaptcha(page) {
   return true;
 }
 
+async function visitDDGBatchOnly(page, keyword, batchLabel) {
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await randomDelay(cfg.delay.min, cfg.delay.max);
+  const clear = await checkAndSolveCaptcha(page);
+  if (!clear) return false;
+  debug(ENGINE, `  DDG batch ${batchLabel}: visit only (no extract) for "${keyword}"`);
+  return true;
+}
+
+async function clickMoreResultsDDG(page) {
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await randomDelay(500, 1000);
+  const moreBtn = await page.$(cfg.moreResultsSelector);
+  if (!moreBtn) return false;
+  await randomDelay(cfg.delay.min, cfg.delay.max);
+  await moreBtn.click();
+  await randomDelay(1500, 3000);
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+  return true;
+}
+
 /**
- * Execute a multi-page DuckDuckGo search.
+ * offset = initial "More results" batches to load and view without extracting.
+ * maxPages = number of batches to extract after that (each batch = one More click after the first slice, except the first extract uses the current DOM).
  */
 async function searchDDG(page, keyword) {
-  info(ENGINE, `Searching: "${keyword}" (up to ${cfg.maxPages} pages)`);
-  const baseOffset = Math.max(0, Math.floor(cfg.offset || 0));
+  const batchesToSkip = Math.max(0, Math.floor(cfg.offset || 0));
+  const batchesToExtract = Math.max(0, Math.floor(cfg.maxPages || 0));
+  info(
+    ENGINE,
+    `Searching: "${keyword}" | skip ${batchesToSkip} batch(es) without extract, then scrape ${batchesToExtract} batch(es)`,
+  );
   const allResults = [];
 
   try {
-    // Page 1
     const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(keyword)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await randomDelay(cfg.delay.min, cfg.delay.max);
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await randomDelay(500, 1000);
 
-    // CAPTCHA check
     const clear = await checkAndSolveCaptcha(page);
     if (!clear) return allResults;
 
-    const page1Raw = await extractResults(page, ENGINE, keyword);
-    const page1Adjusted = page1Raw.map((r, i) => ({
-      ...r,
-      position: baseOffset + i + 1,
-    }));
-    const page1 = normalizeAll(page1Adjusted, ENGINE, keyword);
-    allResults.push(...page1);
-    info(ENGINE, `  Page 1: ${page1.length} results`);
+    let sliceStart = 0;
 
-    // Pages 2–N via "More Results"
-    for (let p = 2; p <= cfg.maxPages; p++) {
+    for (let s = 0; s < batchesToSkip; s++) {
+      const ok = await visitDDGBatchOnly(page, keyword, s + 1);
+      if (!ok) return allResults;
+      const n = (await page.$$(cfg.resultSelector)).length;
+      const moved = await clickMoreResultsDDG(page);
+      if (!moved) {
+        debug(ENGINE, `  No "More Results" while skipping (batch ${s + 1})`);
+        return allResults;
+      }
+      const clearAfter = await checkAndSolveCaptcha(page);
+      if (!clearAfter) return allResults;
+      sliceStart = n;
+    }
+
+    for (let p = 0; p < batchesToExtract; p++) {
       try {
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-        await randomDelay(500, 1000);
-
-        const moreBtn = await page.$(cfg.moreResultsSelector);
-        if (!moreBtn) {
-          debug(ENGINE, `  No "More Results" button found at page ${p}`);
-          break;
-        }
-
-        const countBefore = (await page.$$(cfg.resultSelector)).length;
-
-        await randomDelay(cfg.delay.min, cfg.delay.max);
-        await moreBtn.click();
-        await randomDelay(1500, 3000);
-        await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-
-        // CAPTCHA check after loading more
-        const clearAfter = await checkAndSolveCaptcha(page);
-        if (!clearAfter) break;
+        const clearMid = await checkAndSolveCaptcha(page);
+        if (!clearMid) break;
 
         const allRaw = await extractResults(page, ENGINE, keyword);
-        const newResults = allRaw.slice(countBefore);
+        const slice = allRaw.slice(sliceStart);
+        sliceStart = allRaw.length;
 
-        if (newResults.length === 0) {
-          debug(ENGINE, `  Page ${p}: no new results — stopping pagination`);
+        if (slice.length === 0) {
+          debug(ENGINE, `  Extract batch ${p + 1}: no new results — stopping`);
           break;
         }
 
-        const adjusted = newResults.map((r, i) => ({
+        const adjusted = slice.map((r, i) => ({
           ...r,
-          position: baseOffset + allResults.length + i + 1,
+          position: allResults.length + i + 1,
         }));
-
         const normalized = normalizeAll(adjusted, ENGINE, keyword);
         allResults.push(...normalized);
-        info(ENGINE, `  Page ${p}: ${normalized.length} new results`);
+        info(ENGINE, `  Extract batch ${p + 1}: ${normalized.length} results`);
+
+        if (p < batchesToExtract - 1) {
+          const moved = await clickMoreResultsDDG(page);
+          if (!moved) {
+            debug(ENGINE, '  No "More Results" for next batch');
+            break;
+          }
+          const clearAfter = await checkAndSolveCaptcha(page);
+          if (!clearAfter) break;
+        }
       } catch (err) {
-        logError(ENGINE, `  Page ${p} failed: ${err.message}`);
+        logError(ENGINE, `  Extract batch ${p + 1} failed: ${err.message}`);
         break;
       }
     }
@@ -109,7 +132,10 @@ async function searchDDG(page, keyword) {
  */
 export async function runDuckDuckGo(keywords) {
   const limit = Math.min(keywords.length, cfg.maxQueries);
-  info(ENGINE, `Starting DuckDuckGo engine | ${limit} keywords | ${cfg.maxPages} pages each`);
+  info(
+    ENGINE,
+    `Starting DuckDuckGo engine | ${limit} keywords | extract ${cfg.maxPages} batch(es), skip ${cfg.offset || 0} without extract`,
+  );
   warn(ENGINE, 'Headful mode — browser window will be visible. Solve CAPTCHAs if they appear.');
 
   let browser, page;

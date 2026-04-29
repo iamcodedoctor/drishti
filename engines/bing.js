@@ -49,21 +49,37 @@ async function checkAndSolveCaptcha(page) {
 }
 
 /**
+ * Wait for Bing SERP to settle (skip extraction — offset “pages to skip”).
+ */
+async function visitBingPageOnly(page, keyword, serpPageLabel) {
+  try {
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await randomDelay(cfg.delay.min, cfg.delay.max);
+    const clear = await checkAndSolveCaptcha(page);
+    if (!clear) return false;
+    debug(ENGINE, `  SERP page ${serpPageLabel}: visit only (no extract) for "${keyword}"`);
+    return true;
+  } catch (err) {
+    logError(ENGINE, `  Visit-only page ${serpPageLabel} failed: ${err.message}`);
+    return false;
+  }
+}
+
+/**
  * Scrape a single page of Bing results.
  */
-async function scrapeBingPage(page, keyword, pageNum, positionOffset) {
+async function scrapeBingPage(page, keyword, pageNum) {
   try {
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await randomDelay(cfg.delay.min, cfg.delay.max);
 
-    // CAPTCHA check after page load
     const clear = await checkAndSolveCaptcha(page);
     if (!clear) return [];
 
     const raw = await extractResults(page, ENGINE, keyword);
     const adjusted = raw.map((r, i) => ({
       ...r,
-      position: positionOffset + i + 1,
+      position: i + 1,
     }));
 
     return normalizeAll(adjusted, ENGINE, keyword);
@@ -73,49 +89,68 @@ async function scrapeBingPage(page, keyword, pageNum, positionOffset) {
   }
 }
 
+async function bingClickNext(page) {
+  const nextBtn = await page.$(cfg.nextPageSelector);
+  if (!nextBtn) return false;
+  await randomDelay(cfg.delay.min, cfg.delay.max);
+  await nextBtn.click();
+  await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
+  return true;
+}
+
 /**
  * Execute a multi-page Bing search.
+ * offset = SERP pages to open without extracting; maxPages = pages to scrape after that.
  */
 async function searchBing(page, keyword) {
-  info(ENGINE, `Searching: "${keyword}" (up to ${cfg.maxPages} pages)`);
-  const baseOffset = Math.max(0, Math.floor(cfg.offset || 0));
+  const pagesToSkip = Math.max(0, Math.floor(cfg.offset || 0));
+  const pagesToExtract = Math.max(0, Math.floor(cfg.maxPages || 0));
+  info(
+    ENGINE,
+    `Searching: "${keyword}" | skip ${pagesToSkip} page(s) without extract, then scrape ${pagesToExtract} page(s)`,
+  );
   const allResults = [];
 
   try {
-    // Page 1
     const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(keyword)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await randomDelay(500, 1000);
     await handleBingConsent(page);
 
-    const page1Results = await scrapeBingPage(page, keyword, 1, baseOffset);
-    allResults.push(...page1Results);
-    info(ENGINE, `  Page 1: ${page1Results.length} results`);
+    let serpIndex = 1;
 
-    // Pages 2–N
-    for (let p = 2; p <= cfg.maxPages; p++) {
-      try {
-        const nextBtn = await page.$(cfg.nextPageSelector);
-        if (!nextBtn) {
-          debug(ENGINE, `  No next page button found at page ${p - 1}`);
-          break;
-        }
+    for (let s = 0; s < pagesToSkip; s++) {
+      const ok = await visitBingPageOnly(page, keyword, serpIndex);
+      if (!ok) return allResults;
+      const moved = await bingClickNext(page);
+      if (!moved) {
+        debug(ENGINE, `  No next page while skipping (at SERP ${serpIndex})`);
+        return allResults;
+      }
+      serpIndex += 1;
+    }
 
-        await randomDelay(cfg.delay.min, cfg.delay.max);
-        await nextBtn.click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
+    for (let p = 0; p < pagesToExtract; p++) {
+      const pageResults = await scrapeBingPage(page, keyword, serpIndex);
+      const renumbered = pageResults.map((r, i) => ({
+        ...r,
+        position: allResults.length + i + 1,
+      }));
+      allResults.push(...renumbered);
+      info(ENGINE, `  SERP page ${serpIndex}: ${pageResults.length} results (extract)`);
 
-        const pageResults = await scrapeBingPage(page, keyword, p, baseOffset + allResults.length);
-        if (pageResults.length === 0) {
-          debug(ENGINE, `  Page ${p}: no results — stopping pagination`);
-          break;
-        }
-
-        allResults.push(...pageResults);
-        info(ENGINE, `  Page ${p}: ${pageResults.length} results`);
-      } catch (err) {
-        logError(ENGINE, `  Page ${p} navigation failed: ${err.message}`);
+      if (pageResults.length === 0) {
+        debug(ENGINE, `  SERP ${serpIndex}: no results — stopping`);
         break;
+      }
+
+      if (p < pagesToExtract - 1) {
+        const moved = await bingClickNext(page);
+        if (!moved) {
+          debug(ENGINE, `  No next page after SERP ${serpIndex}`);
+          break;
+        }
+        serpIndex += 1;
       }
     }
   } catch (err) {
@@ -130,7 +165,10 @@ async function searchBing(page, keyword) {
  */
 export async function runBing(keywords) {
   const limit = Math.min(keywords.length, cfg.maxQueries);
-  info(ENGINE, `Starting Bing engine | ${limit} keywords | ${cfg.maxPages} pages each`);
+  info(
+    ENGINE,
+    `Starting Bing engine | ${limit} keywords | extract ${cfg.maxPages} page(s), skip ${cfg.offset || 0} without extract`,
+  );
   warn(ENGINE, 'Headful mode — browser window will be visible. Solve CAPTCHAs if they appear.');
 
   let browser, page;
