@@ -1,7 +1,7 @@
 // DRISHTI v1 — Result Cleaner
 // Post-processing pipeline:
 // 1. Read raw_results.txt
-// 2. Load blacklist.txt domains
+// 2. Load blacklist: default list + project blacklist.txt (union, never replaces)
 // 3. Resolve Bing tracking URLs
 // 4. Filter junk + blacklisted domains
 // 5. Keep only root URLs (strip article/blog paths under the host)
@@ -93,6 +93,7 @@ function readDomainList(path) {
 }
 
 // ─── Load blacklist from default + project files ──────
+/** Merges default (Tranco, etc.) and project `blacklist.txt` into one set — both apply. */
 function loadBlacklist() {
   const merged = new Set();
   const defaultSet = readDomainList(config.paths.defaultBlacklist);
@@ -106,6 +107,27 @@ function loadBlacklist() {
     defaultCount: defaultSet.size,
     projectCount: projectSet.size,
   };
+}
+
+/**
+ * True if hostname is blocked by any blacklist entry.
+ * Entries are hostnames (e.g. acme.com, www.acme.com). Matching rules:
+ * - Exact match, or
+ * - Host is a subdomain of an entry (test.acme.com matches rule acme.com).
+ * Does not match different public suffixes (acme.in is not blocked by acme.com).
+ * evilacme.com is not blocked by acme.com (not a subdomain boundary).
+ */
+function hostnameMatchesBlacklist(host, blacklistSet) {
+  const h = String(host || '').toLowerCase();
+  if (!h || blacklistSet.size === 0) return false;
+  if (blacklistSet.has(h)) return true;
+  const parts = h.split('.').filter(Boolean);
+  if (parts.length < 2) return false;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const candidate = parts.slice(i).join('.');
+    if (blacklistSet.has(candidate)) return true;
+  }
+  return false;
 }
 
 // ─── Built-in junk domains ───────────────────────────
@@ -146,7 +168,7 @@ function extractDomain(url) {
 
 function isJunk(url, domain, blacklist) {
   if (BUILTIN_JUNK.has(domain)) return true;
-  if (blacklist.has(domain)) return true;
+  if (hostnameMatchesBlacklist(domain, blacklist)) return true;
   for (const pattern of JUNK_URL_PATTERNS) {
     if (pattern.test(url)) return true;
   }
@@ -176,7 +198,9 @@ function clean() {
   // Load blacklist
   const { merged: blacklist, defaultCount, projectCount } = loadBlacklist();
   if (blacklist.size > 0) {
-    console.log(`[BLACKLIST] Loaded ${blacklist.size} domains total (default=${defaultCount}, project=${projectCount})`);
+    console.log(
+      `[BLACKLIST] ${blacklist.size} host rules (default file=${defaultCount} + project file=${projectCount}, merged union)`,
+    );
   } else {
     console.log('[BLACKLIST] No default/project blacklist found or both empty — skipping');
   }
@@ -220,7 +244,7 @@ function clean() {
   const filtered = parsed.filter((r) => {
     if (!r.url || !r.domain) { junkFiltered++; return false; }
     if (!r.url.startsWith('http')) { junkFiltered++; return false; }
-    if (blacklist.has(r.domain)) { blacklisted++; return false; }
+    if (hostnameMatchesBlacklist(r.domain, blacklist)) { blacklisted++; return false; }
     if (isJunk(r.url, r.domain, blacklist)) { junkFiltered++; return false; }
     return true;
   });

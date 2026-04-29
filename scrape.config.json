@@ -1,15 +1,17 @@
 {
-  "maxPages": 5,
+  "maxPages": 3,
   "perEngine": {
     "bing": {
-      "offset": 0
+      "offset": 0,
+      "maxPages": 3
     },
     "duckduckgo": {
       "offset": 0,
-      "maxPages": 2
+      "maxPages": 5
     },
     "google": {
-      "offset": 0
+      "offset": 2,
+      "maxPages": 5
     }
   }
 }

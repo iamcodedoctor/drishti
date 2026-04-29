@@ -9,6 +9,7 @@ import {
   readFileSync,
   writeFileSync,
   unlinkSync,
+  rmSync,
 } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -504,6 +505,26 @@ app.post('/api/projects', (req, res) => {
   try {
     mkdirSync(dest, { recursive: true });
     res.json({ ok: true, name });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/projects/:name', (req, res) => {
+  const name = req.params.name;
+  if (!PROJECT_NAME_RE.test(name)) {
+    return res.status(400).json({ error: 'Invalid project name' });
+  }
+  if (HIDDEN_PROJECT_DIRS.has(name)) {
+    return res.status(400).json({ error: 'Reserved project name' });
+  }
+  const dest = projectPath(name);
+  if (!existsSync(dest) || !statSync(dest).isDirectory()) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+  try {
+    rmSync(dest, { recursive: true, force: true });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

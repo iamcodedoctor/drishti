@@ -11,6 +11,13 @@ const IMAGE_EXT = new Set([
   '.svg',
 ]);
 
+/** Dashboard project row — inline SVGs (stroke follows currentColor). */
+const ICON_DASH_OPEN = `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8.8V17a2 2 0 002 2h12a2 2 0 002-2V9.9a2 2 0 00-1.9-2h-5.4l-1.6-1.7H6a2 2 0 00-2 2v.6z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></svg>`;
+
+const ICON_DASH_RUN = `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"/><path d="M10.2 8.8L16 12l-5.8 3.2V8.8z" fill="currentColor" stroke="none"/></svg>`;
+
+const ICON_DASH_DELETE = `<svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 7h12M9 7V5.5h6V7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M8 7l.8 12.2c.1 1 .9 1.8 1.9 1.8h3.6c1 0 1.8-.8 1.9-1.8L16 7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 10.5v6M13.5 10.5v6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>`;
+
 function showError(msg) {
   const el = $('#error-banner');
   if (!msg) {
@@ -300,36 +307,83 @@ function wireImageModalOnce() {
 }
 
 /** --- Dashboard --- */
+function isRunTerminatedStatus(status) {
+  return status === 'completed' || status === 'failed' || status === 'stopped';
+}
+
 async function loadDashboard() {
   showError('');
   const { projects } = await api('/api/projects');
-  const list = projects
-    .map(
-      (p) => `
-      <li>
-        <div>
-          <a class="project-link" href="#/project/${encodeURIComponent(p.name)}">${escapeHtml(p.name)}</a>
-          <div class="badge">kw ${p.hasKeywords ? '✓' : '—'} · bl ${p.hasBlacklist ? '✓' : '—'} · raw ${p.hasRaw ? '✓' : '—'} · clean ${p.hasCleaned ? '✓' : '—'}</div>
-        </div>
-        <div class="row" style="gap:0.5rem">
-          <a class="btn secondary" href="#/project/${encodeURIComponent(p.name)}">Project</a>
-          <a class="btn" href="#/project/${encodeURIComponent(p.name)}/inputs">RUN</a>
-        </div>
-      </li>`,
-    )
-    .join('');
 
   $('#view-dashboard').innerHTML = `
-    <div class="panel">
-      <h2>Projects</h2>
-      ${list ? `<ul class="project-list">${list}</ul>` : '<div class="home-empty"><h1>No projects initiated yet.</h1></div>'}
-      <p class="hint">Each project is stored under <code>data/</code>.</p>
+    <div class="panel dashboard-new">
+      <h2>New project</h2>
       <div class="row">
         <input type="text" id="new-project-name" placeholder="e.g. acme-campaign" style="max-width: 320px" />
-        <button type="button" id="btn-create-project">New project</button>
+        <button type="button" id="btn-create-project">Create</button>
       </div>
-      <p class="hint">Letters, digits, <code>.</code> <code>_</code> <code>-</code> only.</p>
+      <p class="hint">Letters, digits, <code>.</code> <code>_</code> <code>-</code> only. Each project lives under <code>data/</code>.</p>
+    </div>
+    <div class="panel dashboard-list">
+      <h2>Your projects</h2>
+      <input type="search" id="project-search" class="project-search" placeholder="Search projects…" autocomplete="off" />
+      <div class="project-list-scroll">
+        <ul class="project-list" id="project-list-ul"></ul>
+      </div>
     </div>`;
+
+  function projectRowHtml(p) {
+    return `
+      <li>
+        <div class="project-list-info">
+          <a class="project-link" href="#/project/${encodeURIComponent(p.name)}/browse">${escapeHtml(p.name)}</a>
+          <div class="badge">kw ${p.hasKeywords ? '✓' : '—'} · bl ${p.hasBlacklist ? '✓' : '—'} · raw ${p.hasRaw ? '✓' : '—'} · clean ${p.hasCleaned ? '✓' : '—'}</div>
+        </div>
+        <div class="row project-list-actions">
+          <a class="btn secondary btn-icon-only" href="#/project/${encodeURIComponent(p.name)}/browse" title="Open project" aria-label="Open project">${ICON_DASH_OPEN}</a>
+          <a class="btn btn-icon-only" href="#/project/${encodeURIComponent(p.name)}/inputs" title="Start recon" aria-label="Start recon run">${ICON_DASH_RUN}</a>
+          <button type="button" class="danger btn-icon-only" data-delete-project="${encodeURIComponent(p.name)}" title="Delete project" aria-label="Delete project">${ICON_DASH_DELETE}</button>
+        </div>
+      </li>`;
+  }
+
+  function wireDeleteButtons() {
+    $('#project-list-ul').querySelectorAll('[data-delete-project]').forEach((btn) => {
+      btn.onclick = async () => {
+        const name = decodeURIComponent(btn.getAttribute('data-delete-project') || '');
+        if (!name) return;
+        if (!confirm(`Delete project "${name}" and all files under data/${name}?`)) return;
+        try {
+          await api(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+          showError('');
+          await loadDashboard();
+        } catch (e) {
+          showError(e.message);
+        }
+      };
+    });
+  }
+
+  function applyProjectFilter() {
+    const q = ($('#project-search').value || '').trim().toLowerCase();
+    const filtered = !q ? projects : projects.filter((p) => p.name.toLowerCase().includes(q));
+    const ul = $('#project-list-ul');
+    if (!projects.length) {
+      ul.innerHTML =
+        '<li class="project-list-empty"><h3 class="project-list-empty-title">No projects yet. Create one above.</h3></li>';
+      return;
+    }
+    if (!filtered.length) {
+      ul.innerHTML =
+        '<li class="project-list-empty project-list-empty--compact"><h3 class="project-list-empty-title">No projects match your search.</h3></li>';
+      return;
+    }
+    ul.innerHTML = filtered.map(projectRowHtml).join('');
+    wireDeleteButtons();
+  }
+
+  $('#project-search').addEventListener('input', () => applyProjectFilter());
+  applyProjectFilter();
 
   $('#btn-create-project').onclick = async () => {
     const name = $('#new-project-name').value.trim();
@@ -466,148 +520,193 @@ function loadStats() {
 
 /** --- Full-screen file browser --- */
 async function loadBrowse(name, browsePath) {
-  showError('');
-  wireImageModalOnce();
-
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
-    showError('Invalid project name');
-    return loadDashboard();
-  }
-
-  let explorerPath = browsePath || '';
-
-  $('#view-browse').innerHTML = `
-    <div class="fs-browse">
-      <div class="fs-browse-top">
-        <a class="btn secondary" href="#/project/${encodeURIComponent(name)}">← Project</a>
-        <div id="fs-browse-breadcrumb" class="breadcrumb"></div>
-      </div>
-      <ul id="fs-browse-list" class="explorer-list fs-explorer-list"></ul>
-    </div>`;
-
-  const bc = $('#fs-browse-breadcrumb');
-  const listEl = $('#fs-browse-list');
-
-  async function refreshExplorer() {
-    const q = explorerPath ? `?path=${encodeURIComponent(explorerPath)}` : '';
-    const data = await api(`/api/projects/${encodeURIComponent(name)}/browse${q}`);
-    explorerPath = data.path || '';
-
-    const parts = explorerPath ? explorerPath.split('/') : [];
-    let crumb = `<a href="#" data-crumb="${encodeURIComponent('')}">data/${escapeHtml(name)}</a>`;
-    let acc = '';
-    for (const seg of parts) {
-      acc = acc ? `${acc}/${seg}` : seg;
-      crumb += ` / <a href="#" data-crumb="${encodeURIComponent(acc)}">${escapeHtml(seg)}</a>`;
-    }
-    bc.innerHTML = crumb;
-    bc.querySelectorAll('a[data-crumb]').forEach((a) => {
-      a.onclick = (ev) => {
-        ev.preventDefault();
-        const next = decodeURIComponent(a.getAttribute('data-crumb') || '');
-        hashProjectBrowse(name, next);
-      };
-    });
-
-    listEl.innerHTML = (data.entries || [])
-      .map((ent) => {
-        const rel = explorerPath ? `${explorerPath}/${ent.name}` : ent.name;
-        const size = ent.type === 'file' && typeof ent.size === 'number' ? `${ent.size} B` : '';
-        return `<li data-rel="${encodeURIComponent(rel)}" data-type="${ent.type}">
-          <span>${ent.type === 'dir' ? '📁' : '📄'} ${escapeHtml(ent.name)}</span>
-          <span class="meta">${size}</span>
-        </li>`;
-      })
-      .join('');
-
-    listEl.querySelectorAll('li').forEach((li) => {
-      li.onclick = () => {
-        const rel = decodeURIComponent(li.getAttribute('data-rel') || '');
-        const type = li.getAttribute('data-type');
-        if (type === 'dir') {
-          hashProjectBrowse(name, rel);
-          return;
-        }
-        const ext = extOf(rel);
-        if (IMAGE_EXT.has(ext)) {
-          const dirRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
-          openImageModal(name, dirRel, rel);
-          return;
-        }
-        hashProjectText(name, rel);
-      };
-    });
-  }
-
-  await refreshExplorer();
-
-  $('#view-dashboard').style.display = 'none';
-  $('#view-project').style.display = 'none';
-  $('#view-config').style.display = 'none';
-  $('#view-stats').style.display = 'none';
-  $('#view-text').style.display = 'none';
-  $('#view-browse').style.display = 'flex';
+  return loadOutputViewer(name, browsePath || '', '');
 }
 
 /** --- Full-screen text viewer --- */
 async function loadTextViewer(name, filePath) {
+  const parentDir = filePath && filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
+  return loadOutputViewer(name, parentDir, filePath || '');
+}
+
+function parentPath(rel) {
+  if (!rel) return '';
+  const parts = String(rel).split('/').filter(Boolean);
+  if (parts.length <= 1) return '';
+  return parts.slice(0, -1).join('/');
+}
+
+async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
   showError('');
-  wireImageModalOnce();
 
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
     showError('Invalid project name');
     return loadDashboard();
   }
 
-  const parentDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
-  const browseBack = `#/project/${encodeURIComponent(name)}/browse${parentDir ? `?path=${encodeURIComponent(parentDir)}` : ''}`;
+  const currentDir = String(browsePath || '');
+  const selectedFile = String(selectedFilePath || '');
+  const currentLabel = selectedFile || (currentDir ? `${currentDir}/` : `${name}/`);
+  const canGoUp = !!(selectedFile || currentDir);
+  const upTarget = selectedFile ? parentPath(selectedFile) : parentPath(currentDir);
 
-  $('#view-text').innerHTML = `
-    <div class="fs-text">
-      <div class="fs-text-top">
-        <a class="btn secondary" href="${browseBack}">← Browser</a>
-        <a class="btn secondary" href="#/project/${encodeURIComponent(name)}">Project</a>
-        <span id="fs-text-path" class="fs-text-path"></span>
+  $('#view-browse').innerHTML = `
+    <div class="output-viewer">
+      <div class="output-viewer-header">
+        <div class="output-viewer-heading">
+          <h2>${escapeHtml(name)}</h2>
+          <div class="output-viewer-subline">
+            <button type="button" class="btn secondary output-up-btn" id="ov-up-btn"${canGoUp ? '' : ' disabled'} aria-label="Go one directory up">←</button>
+            <span class="output-current">${escapeHtml(currentLabel)}</span>
+          </div>
+        </div>
+        <div class="row output-viewer-actions">
+          <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/browse">Project root</a>
+          <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/inputs">Re-run</a>
+        </div>
       </div>
-      <pre id="fs-text-area" class="fs-text-area" tabindex="0" spellcheck="false"></pre>
-      <div id="fs-text-status" class="viewer-statusbar">—</div>
+      <div class="output-viewer-main">
+        <ul id="ov-list" class="output-list"></ul>
+        <div class="output-preview">
+          <div id="ov-preview-content" class="output-preview-content"></div>
+          <div id="ov-preview-status" class="viewer-statusbar">—</div>
+        </div>
+      </div>
     </div>`;
 
-  const ta = $('#fs-text-area');
-  const statusEl = $('#fs-text-status');
-  const pathEl = $('#fs-text-path');
+  const listEl = $('#ov-list');
+  const previewEl = $('#ov-preview-content');
+  const statusEl = $('#ov-preview-status');
+  $('#ov-up-btn').onclick = () => {
+    if (!canGoUp) return;
+    hashProjectBrowse(name, upTarget);
+  };
 
-  if (!filePath) {
-    pathEl.textContent = '(no file selected)';
-    ta.innerHTML = '';
-    statusEl.textContent = 'Open a file from the browser.';
-    $('#view-dashboard').style.display = 'none';
-    $('#view-project').style.display = 'none';
-    $('#view-config').style.display = 'none';
-    $('#view-stats').style.display = 'none';
-    $('#view-browse').style.display = 'none';
-    $('#view-text').style.display = 'flex';
-    return;
+  const q = currentDir ? `?path=${encodeURIComponent(currentDir)}` : '';
+  const data = await api(`/api/projects/${encodeURIComponent(name)}/browse${q}`);
+  const entries = data.entries || [];
+  const dirPath = data.path || '';
+
+  const rows = [];
+  if (dirPath) {
+    rows.push(`<li data-nav-up="1"><span>..</span><span class="meta">parent</span></li>`);
   }
+  for (const ent of entries) {
+    const rel = dirPath ? `${dirPath}/${ent.name}` : ent.name;
+    const size = ent.type === 'file' && typeof ent.size === 'number' ? formatBytes(ent.size) : '';
+    rows.push(`
+      <li data-rel="${encodeURIComponent(rel)}" data-type="${ent.type}">
+        <span>${ent.type === 'dir' ? '📁' : '📄'} ${escapeHtml(ent.name)}</span>
+        <span class="meta">${escapeHtml(size || ent.type)}</span>
+      </li>`);
+  }
+  listEl.innerHTML = rows.join('') || '<li><span class="hint">No files in this directory.</span></li>';
 
-  pathEl.textContent = filePath;
+  listEl.querySelectorAll('li[data-nav-up]').forEach((li) => {
+    li.onclick = () => hashProjectBrowse(name, parentPath(dirPath));
+  });
+  listEl.querySelectorAll('li[data-rel]').forEach((li) => {
+    li.onclick = () => {
+      const rel = decodeURIComponent(li.getAttribute('data-rel') || '');
+      const type = li.getAttribute('data-type');
+      if (type === 'dir') {
+        hashProjectBrowse(name, rel);
+        return;
+      }
+      hashProjectText(name, rel);
+    };
+  });
 
-  try {
-    const data = await api(
-      `/api/projects/${encodeURIComponent(name)}/view-text?path=${encodeURIComponent(filePath)}`,
+  async function renderSelectedFile() {
+    if (!selectedFile) {
+      previewEl.innerHTML = '<div class="output-preview-empty">Select a file to view output.</div>';
+      statusEl.textContent = `${entries.length} items in ${dirPath || `${name}/`}`;
+      return;
+    }
+
+    const ext = extOf(selectedFile);
+    if (IMAGE_EXT.has(ext)) {
+      const dirRel = selectedFile.includes('/') ? selectedFile.slice(0, selectedFile.lastIndexOf('/')) : '';
+      const imgList = await api(
+        `/api/projects/${encodeURIComponent(name)}/images-in-dir?dir=${encodeURIComponent(dirRel)}`,
+      ).catch(() => ({ paths: [selectedFile] }));
+      const paths = imgList.paths?.length ? imgList.paths : [selectedFile];
+      let idx = Math.max(0, paths.indexOf(selectedFile));
+      let zoom = 1;
+      const MIN_ZOOM = 0.25;
+      const MAX_ZOOM = 4;
+      const ZOOM_STEP = 0.25;
+
+      function clampZoom(v) {
+        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v));
+      }
+
+      function formatZoom(v) {
+        return `${Math.round(v * 100)}%`;
+      }
+
+      const renderImage = () => {
+        const rel = paths[idx];
+        const src = rawImageUrl(name, rel);
+        previewEl.innerHTML = `
+          <div class="output-image-wrap">
+            <div class="output-image-toolbar">
+              <button type="button" class="secondary" id="ov-img-prev"${idx <= 0 ? ' disabled' : ''}>← Prev</button>
+              <span class="badge">${idx + 1}/${paths.length} · ${escapeHtml(rel)}</span>
+              <div class="row" style="gap:0.35rem;">
+                <button type="button" class="secondary" id="ov-img-zoom-out" aria-label="Zoom out">−</button>
+                <button type="button" class="secondary" id="ov-img-zoom-fit" aria-label="Fit to container">Fit</button>
+                <button type="button" class="secondary" id="ov-img-zoom-in" aria-label="Zoom in">+</button>
+                <span class="badge" id="ov-img-zoom-label">${formatZoom(zoom)}</span>
+              </div>
+              <button type="button" class="secondary" id="ov-img-next"${idx >= paths.length - 1 ? ' disabled' : ''}>Next →</button>
+            </div>
+            <div class="output-image-stage"><img id="ov-image" src="${src}" alt="${escapeHtml(rel)}" /></div>
+          </div>`;
+        statusEl.textContent = `image · ${ext.slice(1) || 'unknown'} · ${formatZoom(zoom)} · Use + / − / Fit`;
+        const imgEl = $('#ov-image');
+        const zoomLabel = $('#ov-img-zoom-label');
+        const applyZoom = () => {
+          imgEl.style.transform = `scale(${zoom})`;
+          zoomLabel.textContent = formatZoom(zoom);
+          statusEl.textContent = `image · ${ext.slice(1) || 'unknown'} · ${formatZoom(zoom)} · Use + / − / Fit`;
+        };
+        $('#ov-img-prev').onclick = () => { if (idx > 0) { idx -= 1; renderImage(); } };
+        $('#ov-img-next').onclick = () => { if (idx < paths.length - 1) { idx += 1; renderImage(); } };
+        $('#ov-img-zoom-out').onclick = () => {
+          zoom = clampZoom(zoom - ZOOM_STEP);
+          applyZoom();
+        };
+        $('#ov-img-zoom-in').onclick = () => {
+          zoom = clampZoom(zoom + ZOOM_STEP);
+          applyZoom();
+        };
+        $('#ov-img-zoom-fit').onclick = () => {
+          zoom = 1;
+          applyZoom();
+        };
+        applyZoom();
+      };
+      renderImage();
+      return;
+    }
+
+    const textData = await api(
+      `/api/projects/${encodeURIComponent(name)}/view-text?path=${encodeURIComponent(selectedFile)}`,
     );
-    const raw = data.content ?? '';
-    ta.innerHTML = linkifyPlainTextToHtml(raw);
-
+    const raw = textData.content ?? '';
+    previewEl.innerHTML = `<pre id="ov-text-area" class="fs-text-area" tabindex="0" spellcheck="false">${linkifyPlainTextToHtml(raw)}</pre>`;
+    const ta = $('#ov-text-area');
     const totalLines = countLines(raw);
-    const sizeBytes = typeof data.sizeBytes === 'number' ? data.sizeBytes : new TextEncoder().encode(raw).length;
+    const sizeBytes = typeof textData.sizeBytes === 'number'
+      ? textData.sizeBytes
+      : new TextEncoder().encode(raw).length;
+    const fileExt = ext ? ext.slice(1) : 'txt';
 
     function baseStatus() {
       const approx = approxViewportLines(ta);
-      const sb = typeof sizeBytes === 'number' ? formatBytes(sizeBytes) : '—';
-      return `${sb} · ${totalLines.toLocaleString()} lines · ~${approx} lines in viewport · Click URL to copy · Ctrl/⌘+click to open`;
+      return `${formatBytes(sizeBytes)} · ${approx} visible lines · ${totalLines.toLocaleString()} total lines · ${fileExt} · Click URL to copy · Ctrl/⌘+click opens`;
     }
-
     function refreshStatusBar(extra) {
       statusEl.textContent = extra ? `${baseStatus()} — ${extra}` : baseStatus();
     }
@@ -616,28 +715,21 @@ async function loadTextViewer(name, filePath) {
     ro.observe(ta);
     ta.addEventListener('scroll', () => refreshStatusBar());
     window.addEventListener('resize', () => refreshStatusBar());
-
     wireTextUrlInteractions(ta, (url) => {
       if (url) refreshStatusBar(`Copied: ${url}`);
-      else refreshStatusBar('Copy failed (clipboard permission?)');
-      window.setTimeout(() => refreshStatusBar(), 1600);
+      else refreshStatusBar('Copy failed');
+      window.setTimeout(() => refreshStatusBar(), 1400);
     });
-
-    requestAnimationFrame(() => {
-      refreshStatusBar();
-      requestAnimationFrame(() => refreshStatusBar());
-    });
-  } catch (e) {
-    ta.innerHTML = '';
-    statusEl.textContent = e.message || 'Could not load file';
+    refreshStatusBar();
   }
+  await renderSelectedFile();
 
   $('#view-dashboard').style.display = 'none';
   $('#view-project').style.display = 'none';
   $('#view-config').style.display = 'none';
   $('#view-stats').style.display = 'none';
-  $('#view-browse').style.display = 'none';
-  $('#view-text').style.display = 'flex';
+  $('#view-text').style.display = 'none';
+  $('#view-browse').style.display = 'flex';
 }
 
 /** --- Project home (centered file browser) --- */
@@ -761,7 +853,11 @@ async function loadProjectInputs(name) {
         </div>
         <p class="hint" style="margin:0 0 0.5rem">Google: always opens google.com and types the query. Offset = SERP pages to scroll through <em>without</em> saving URLs; Pages = SERP pages to extract after. Example: offset 2 + pages 3 → visit pages 1–2 with no extract, then save URLs from pages 3–5.</p>`);
     }
-    if (steps.includes('clean')) blocks.push('<div class="hint">Clean selected: uses current project raw results + blacklist.</div>');
+    if (steps.includes('clean')) {
+      blocks.push(
+        '<div class="hint">Clean: raw results + merged blacklist (repo default list and project <code>blacklist.txt</code>, both apply). A listed host also blocks its subdomains (e.g. <code>acme.com</code> blocks <code>test.acme.com</code>), not other suffixes like <code>acme.in</code>.</div>',
+      );
+    }
     if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
     $('#run-config-preview').innerHTML = blocks.length
       ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
@@ -848,12 +944,21 @@ async function loadRunning(project = '', focusRunId = '') {
   let currentRunId = selected?.runId || '';
   const currentProject = selected?.projectName || project || '';
   let es = null;
+  const terminateDisabledInitially =
+    !currentRunId || isRunTerminatedStatus(selected?.status || '');
+
+  const viewProjectHref = currentProject
+    ? `#/project/${encodeURIComponent(currentProject)}/browse`
+    : '#/';
 
   $('#view-project').innerHTML = `
     <div class="panel" style="max-width:1080px;margin:0 auto;">
-      <div class="row" style="justify-content:space-between; margin-bottom:0.5rem;">
+      <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:0.5rem;">
         <h2 style="margin:0;">${currentProject ? `Console — ${escapeHtml(currentProject)}` : 'Console'}</h2>
-        <button type="button" class="danger" id="btn-stop-run"${currentRunId ? '' : ' disabled'}>Terminate</button>
+        <div class="row" style="gap:0.5rem">
+          <a class="btn secondary" id="btn-view-project" href="${viewProjectHref}"${currentProject ? '' : ' aria-disabled="true" style="pointer-events:none;opacity:0.45"'}>View project</a>
+          <button type="button" class="danger" id="btn-stop-run"${terminateDisabledInitially ? ' disabled' : ''}>Terminate</button>
+        </div>
       </div>
       ${currentRunId ? '' : '<p class="hint">No run selected. Open Running instances page and choose one.</p>'}
       <pre class="console" id="run-console" style="min-height:420px;"></pre>
@@ -869,12 +974,12 @@ async function loadRunning(project = '', focusRunId = '') {
     consoleEl.scrollTop = consoleEl.scrollHeight;
   };
 
-  function bindStream(runId) {
+  function bindStream(runId, opts = {}) {
     if (es) es.close();
     consoleEl.innerHTML = '';
     if (!runId) return;
     currentRunId = runId;
-    stopBtn.disabled = false;
+    stopBtn.disabled = opts.alreadyTerminated === true;
     append(`[gui] Streaming run: ${runId}\n`);
     es = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream`);
     es.onmessage = (ev) => {
@@ -883,6 +988,7 @@ async function loadRunning(project = '', focusRunId = '') {
         if (payload.text) append(payload.text);
         if (payload.done) {
           append(`\n[gui] ${payload.stopped ? 'Stopped' : payload.ok ? 'Completed' : `Error: ${payload.message || ''}`}\n`);
+          stopBtn.disabled = true;
         }
       } catch {
         append(`${ev.data}\n`);
@@ -903,7 +1009,7 @@ async function loadRunning(project = '', focusRunId = '') {
     }
   };
 
-  if (currentRunId) bindStream(currentRunId);
+  if (currentRunId) bindStream(currentRunId, { alreadyTerminated: terminateDisabledInitially });
 
   $('#view-dashboard').style.display = 'none';
   $('#view-config').style.display = 'none';
@@ -964,7 +1070,7 @@ function route() {
     return;
   }
   if (parsed.route === 'project') {
-    void loadProject(parsed.name);
+    hashProjectBrowse(parsed.name, '');
     return;
   }
   if (parsed.route === 'projectInputs') {

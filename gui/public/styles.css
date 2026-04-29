@@ -18,7 +18,7 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -26,6 +26,7 @@ body {
   font-family: var(--sans);
   font-size: 15px;
   line-height: 1.5;
+  overflow: hidden;
 }
 
 a {
@@ -80,16 +81,17 @@ main#main-shell {
   width: 100%;
   margin: 0 auto;
   padding: 1.5rem;
+  overflow: hidden;
 }
 
 main#main-shell.main--fs {
   max-width: none;
   margin: 0;
-  padding: 0;
+  padding: 0.9rem;
 }
 
 main#main-shell.main--fs #error-banner {
-  margin: 0.75rem 1rem 0;
+  margin: 0 0 0.75rem;
 }
 
 .view-fs {
@@ -97,6 +99,7 @@ main#main-shell.main--fs #error-banner {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .fs-browse {
@@ -105,6 +108,9 @@ main#main-shell.main--fs #error-banner {
   flex: 1;
   min-height: 0;
   background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .fs-browse-top {
@@ -138,6 +144,154 @@ main#main-shell.main--fs #error-banner {
   flex: 1;
   min-height: 0;
   background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.output-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.output-viewer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.output-viewer-heading h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.output-viewer-subline {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.output-up-btn {
+  padding: 0.2rem 0.5rem;
+  min-width: 1.9rem;
+  background: transparent;
+}
+
+.output-current {
+  font-family: var(--font);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.output-viewer-actions {
+  flex-shrink: 0;
+}
+
+.output-viewer-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 27%) 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.output-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.55rem 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.output-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid rgba(42, 49, 66, 0.55);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.output-list li:hover {
+  background: rgba(91, 140, 255, 0.08);
+}
+
+.output-preview {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  background: #0a0c10;
+  overflow: hidden;
+}
+
+.output-preview-content {
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.output-preview-empty {
+  height: 100%;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.output-image-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.output-image-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.output-image-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  overflow: hidden;
+}
+
+.output-image-stage img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
 }
 
 .fs-text-top {
@@ -162,6 +316,7 @@ main#main-shell.main--fs #error-banner {
 .fs-text-area {
   flex: 1;
   min-height: 0;
+  height: 100%;
   width: 100%;
   margin: 0;
   padding: 1rem;
@@ -179,6 +334,11 @@ main#main-shell.main--fs #error-banner {
   tab-size: 2;
 }
 
+.output-preview .fs-text-area {
+  border-radius: 0;
+  border: none;
+}
+
 .fs-text-area a.text-url {
   color: var(--accent);
   text-decoration: underline;
@@ -192,6 +352,9 @@ main#main-shell.main--fs #error-banner {
 }
 
 .viewer-statusbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   flex-shrink: 0;
   padding: 0.5rem 1rem;
   border-top: 1px solid var(--border);
@@ -225,8 +388,28 @@ main#main-shell.main--fs #error-banner {
   align-items: center;
 }
 
+.dashboard-new {
+  margin-bottom: 1.25rem;
+}
+
+.dashboard-list .project-list-scroll {
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  margin-top: 0.75rem;
+  padding-right: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.dashboard-list .project-search {
+  max-width: 360px;
+  margin-top: 0.5rem;
+}
+
 input[type="text"],
 input[type="number"],
+input[type="search"],
 textarea {
   width: 100%;
   padding: 0.65rem 0.75rem;
@@ -308,10 +491,58 @@ button.danger:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
+a.btn.btn-icon-only,
+button.btn-icon-only {
+  min-width: 2.4rem;
+  padding: 0.45rem;
+}
+
+.btn-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
 .project-list {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.project-list-info {
+  padding-left: 0.6rem;
+  padding-right: 0.75rem;
+  min-width: 0;
+}
+
+.project-list-actions {
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.project-list li.project-list-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  padding: 2rem 1.25rem;
+  border-bottom: none;
+}
+
+.project-list li.project-list-empty--compact {
+  min-height: 140px;
+}
+
+.project-list-empty-title {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.35;
+  font-family: var(--sans);
+  color: var(--muted);
+  text-align: center;
 }
 
 .project-list li {
@@ -406,6 +637,16 @@ label.chk {
 }
 
 @media (max-width: 720px) {
+  .output-viewer-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 34%) 1fr;
+  }
+
+  .output-list {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
   .explorer-layout {
     grid-template-columns: 1fr;
   }
