@@ -19,6 +19,11 @@ import {
   mergeTmpCleanedIntoCanonical,
   mergeTmpLogs,
 } from './lib/mergeProjectResults.js';
+import {
+  collectReconContactRows,
+  buildReconContactsCsv,
+  buildReconContactsXlsxBuffer,
+} from './lib/reconContactsExport.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -783,6 +788,40 @@ app.get('/api/projects/:name/images-in-dir', (req, res) => {
     const prefix = rel.replace(/\\/g, '/').replace(/\/+$/, '');
     const paths = images.map((f) => (prefix ? `${prefix}/${f}` : f));
     res.json({ dir: rel.replace(/\\/g, '/'), images, paths });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/projects/:name/export-recon-contacts', async (req, res) => {
+  const name = req.params.name;
+  if (!PROJECT_NAME_RE.test(name)) return res.status(400).json({ error: 'Bad name' });
+  const format = String(req.query.format || 'xlsx').toLowerCase();
+  try {
+    const reconPath = safeProjectFile(name, 'recon');
+    const rows = collectReconContactRows(reconPath);
+    const safeBase = name.replace(/[^\w.-]+/g, '_');
+
+    if (format === 'csv') {
+      const csv = buildReconContactsCsv(rows);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeBase}-recon-contacts.csv"`);
+      res.send(`\uFEFF${csv}`);
+      return;
+    }
+
+    if (format === 'xlsx') {
+      const buf = await buildReconContactsXlsxBuffer(rows);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${safeBase}-recon-contacts.xlsx"`);
+      res.send(buf);
+      return;
+    }
+
+    res.status(400).json({ error: 'format must be xlsx or csv' });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

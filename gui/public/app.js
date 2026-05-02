@@ -96,6 +96,47 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/**
+ * Download recon contacts aggregate (CSV or XLSX). Uses raw fetch — not `api()` — for binary bodies.
+ * @param {string} projectName
+ * @param {'csv'|'xlsx'} format
+ */
+async function downloadReconContactsExport(projectName, format) {
+  const url = `/api/projects/${encodeURIComponent(projectName)}/export-recon-contacts?format=${encodeURIComponent(format)}`;
+  const r = await fetch(url);
+  const ct = r.headers.get('content-type') || '';
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    if (ct.includes('application/json')) {
+      try {
+        const j = await r.json();
+        if (j && j.error) msg = j.error;
+      } catch {
+        /* */
+      }
+    } else {
+      try {
+        const t = await r.text();
+        if (t) msg = t.length > 240 ? `${t.slice(0, 240)}…` : t;
+      } catch {
+        /* */
+      }
+    }
+    throw new Error(msg);
+  }
+  const blob = await r.blob();
+  const ext = format === 'csv' ? 'csv' : 'xlsx';
+  const safeBase = projectName.replace(/[^\w.-]+/g, '_');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${safeBase}-recon-contacts.${ext}`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
 async function getScrapeSettings() {
   const { settings } = await api('/api/settings/scrape');
   return settings || { maxPages: 2, perEngine: {} };
@@ -549,6 +590,13 @@ async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
   const currentLabel = selectedFile || (currentDir ? `${currentDir}/` : `${name}/`);
   const canGoUp = !!(selectedFile || currentDir);
   const upTarget = selectedFile ? parentPath(selectedFile) : parentPath(currentDir);
+  const atProjectRoot = !currentDir;
+
+  const exportButtons = atProjectRoot
+    ? `
+          <button type="button" class="btn secondary" id="ov-export-csv" title="All domains under recon with contacts.json">Export CSV</button>
+          <button type="button" class="btn" id="ov-export-xlsx" title="Styled workbook: navy header, row tint by data completeness">Export Excel</button>`
+    : '';
 
   $('#view-browse').innerHTML = `
     <div class="output-viewer">
@@ -563,10 +611,17 @@ async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
         <div class="row output-viewer-actions">
           <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/browse">Project root</a>
           <a class="btn secondary" href="#/project/${encodeURIComponent(name)}/inputs">Re-run</a>
+          ${exportButtons}
         </div>
       </div>
       <div class="output-viewer-main">
-        <ul id="ov-list" class="output-list"></ul>
+        <div class="output-sidebar">
+          <div class="output-list-search-wrap">
+            <label class="visually-hidden" for="ov-list-search">Search files and folders in this folder</label>
+            <input type="search" id="ov-list-search" class="output-list-search" placeholder="Search files & folders…" autocomplete="off" spellcheck="false" />
+          </div>
+          <ul id="ov-list" class="output-list"></ul>
+        </div>
         <div class="output-preview">
           <div id="ov-preview-content" class="output-preview-content"></div>
           <div id="ov-preview-status" class="viewer-statusbar">—</div>
@@ -616,6 +671,35 @@ async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
       hashProjectText(name, rel);
     };
   });
+
+  const searchInput = /** @type {HTMLInputElement} */ ($('#ov-list-search'));
+  function applyListFilter() {
+    const q = (searchInput.value || '').trim().toLowerCase();
+    listEl.querySelectorAll('li').forEach((li) => {
+      if (li.hasAttribute('data-nav-up')) {
+        li.style.display = q ? 'none' : '';
+        return;
+      }
+      const enc = li.getAttribute('data-rel');
+      if (!enc) {
+        li.style.display = '';
+        return;
+      }
+      const rel = decodeURIComponent(enc);
+      const base = rel.includes('/') ? rel.slice(rel.lastIndexOf('/') + 1) : rel;
+      li.style.display = !q || base.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+  searchInput.addEventListener('input', applyListFilter);
+
+  if (atProjectRoot) {
+    $('#ov-export-csv').onclick = () => {
+      downloadReconContactsExport(name, 'csv').catch((e) => showError(e.message));
+    };
+    $('#ov-export-xlsx').onclick = () => {
+      downloadReconContactsExport(name, 'xlsx').catch((e) => showError(e.message));
+    };
+  }
 
   async function renderSelectedFile() {
     if (!selectedFile) {

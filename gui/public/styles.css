@@ -93,6 +93,11 @@ main#main-shell.main--fs {
 main#main-shell.main--fs #error-banner {
   margin: 0 0 0.75rem;
 }
+.view {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
 
 .view-fs {
   flex: 1;
@@ -198,6 +203,8 @@ main#main-shell.main--fs #error-banner {
 
 .output-viewer-actions {
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .output-viewer-main {
@@ -209,12 +216,47 @@ main#main-shell.main--fs #error-banner {
   overflow: hidden;
 }
 
+.output-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.output-list-search-wrap {
+  flex-shrink: 0;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.output-list-search {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  font-size: 13px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .output-list {
   list-style: none;
   margin: 0;
   padding: 0.55rem 0;
   overflow: auto;
-  border-right: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
   background: var(--bg);
 }
 
@@ -642,7 +684,7 @@ label.chk {
     grid-template-rows: minmax(180px, 34%) 1fr;
   }
 
-  .output-list {
+  .output-sidebar {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
