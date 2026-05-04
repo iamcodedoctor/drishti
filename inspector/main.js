@@ -41,8 +41,12 @@ async function inspectSingleDomain(browser, { domain, url }, position, total) {
     const perfData = await capturePerformance(browser, url, domain);
     writePerformance(domainDir, perfData, domain);
 
-    info(domain, `Phase 2: Screenshots`);
-    await captureScreenshots(browser, url, domainDir, domain);
+    if (inspectorConfig.captureScreenshots) {
+      info(domain, `Phase 2: Screenshots`);
+      await captureScreenshots(browser, url, domainDir, domain);
+    } else {
+      info(domain, `Phase 2: Screenshots (Skipped via config)`);
+    }
 
     info(domain, `Phase 3: HTML & SEO Analysis`);
     const fetchResult = await fetchHTML(url, domain);

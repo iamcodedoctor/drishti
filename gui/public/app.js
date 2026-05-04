@@ -943,7 +943,15 @@ async function loadProjectInputs(name) {
         '<div class="hint">Clean: raw results + merged blacklist (repo default list and project <code>blacklist.txt</code>, both apply). A listed host also blocks its subdomains (e.g. <code>acme.com</code> blocks <code>test.acme.com</code>), not other suffixes like <code>acme.in</code>.</div>',
       );
     }
-    if (steps.includes('inspector')) blocks.push('<div class="hint">Inspector selected: uses cleaned results for deep analysis.</div>');
+    if (steps.includes('inspector')) {
+      blocks.push(`
+        <div class="row" style="margin-bottom:0.5rem">
+          <strong>Inspector</strong>
+          <label class="hint" for="run-inspector-screenshots">Capture Screenshots</label>
+          <input id="run-inspector-screenshots" type="checkbox" checked />
+        </div>
+        <p class="hint" style="margin:0 0 0.5rem">Inspector uses cleaned results for deep analysis.</p>`);
+    }
     if (steps.includes('enum')) blocks.push('<div class="hint">Enum selected: brute-forces contacts and extracts via LLM.</div>');
     $('#run-config-preview').innerHTML = blocks.length
       ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
@@ -995,6 +1003,11 @@ async function loadProjectInputs(name) {
         runConfig.google = {
           maxPages: Number($('#run-google-pages')?.value || scrapeSettings.maxPages || 2),
           offset: Number($('#run-google-offset')?.value || 0),
+        };
+      }
+      if (steps.includes('inspector')) {
+        runConfig.inspector = {
+          captureScreenshots: $('#run-inspector-screenshots')?.checked ?? true,
         };
       }
       await api(`/api/projects/${encodeURIComponent(name)}/recon`, {

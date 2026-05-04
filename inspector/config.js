@@ -12,6 +12,7 @@ const inspectorConfig = {
   input: join(projectRoot, 'cleaned_results.txt'),
   outputDir: join(projectRoot, 'recon'),
   logFile: join(projectRoot, 'logs.txt'),
+  captureScreenshots: process.env.DRISHTI_INSPECTOR_SCREENSHOTS !== 'false',
 
   // How many domains to inspect in parallel (each uses isolated browser contexts).
   concurrency: 3,

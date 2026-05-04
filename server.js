@@ -424,9 +424,11 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
 
   if (runInspector && !isRunAborted(runId)) {
     emitRunLog(runId, `\n[gui] ▶ inspector (GHOST_PROJECT_DIR=${root})\n`);
-    await runCmd(runId, process.execPath, ['inspector/main.js'], {
-      GHOST_PROJECT_DIR: root,
-    });
+    const inspectorEnv = { GHOST_PROJECT_DIR: root };
+    if (runConfig?.inspector && runConfig.inspector.captureScreenshots === false) {
+      inspectorEnv.DRISHTI_INSPECTOR_SCREENSHOTS = 'false';
+    }
+    await runCmd(runId, process.execPath, ['inspector/main.js'], inspectorEnv);
   }
 
   if (runEnum && !isRunAborted(runId)) {
@@ -652,6 +654,11 @@ app.post('/api/projects/:name/recon', (req, res) => {
     const off = Number(raw.offset);
     if (Number.isFinite(off) && off >= 0) obj.offset = Math.floor(off);
     safeRunConfig[key] = obj;
+  }
+  if (runConfig?.inspector && typeof runConfig.inspector === 'object') {
+    safeRunConfig.inspector = {
+      captureScreenshots: runConfig.inspector.captureScreenshots !== false,
+    };
   }
 
   void executeReconJob(runId, name, stepList, String(keywords), String(blacklist), safeRunConfig)
