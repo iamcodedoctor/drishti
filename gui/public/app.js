@@ -96,13 +96,14 @@ async function api(path, opts = {}) {
   return data;
 }
 
+
+
 /**
- * Download recon contacts aggregate (CSV or XLSX). Uses raw fetch — not `api()` — for binary bodies.
+ * Download domains.csv as an XLSX file
  * @param {string} projectName
- * @param {'csv'|'xlsx'} format
  */
-async function downloadReconContactsExport(projectName, format) {
-  const url = `/api/projects/${encodeURIComponent(projectName)}/export-recon-contacts?format=${encodeURIComponent(format)}`;
+async function downloadDomainsXlsx(projectName) {
+  const url = `/api/projects/${encodeURIComponent(projectName)}/export-domains-xlsx`;
   const r = await fetch(url);
   const ct = r.headers.get('content-type') || '';
   if (!r.ok) {
@@ -125,11 +126,10 @@ async function downloadReconContactsExport(projectName, format) {
     throw new Error(msg);
   }
   const blob = await r.blob();
-  const ext = format === 'csv' ? 'csv' : 'xlsx';
   const safeBase = projectName.replace(/[^\w.-]+/g, '_');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${safeBase}-recon-contacts.${ext}`;
+  a.download = `${safeBase}-domains.xlsx`;
   a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
@@ -593,9 +593,7 @@ async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
   const atProjectRoot = !currentDir;
 
   const exportButtons = atProjectRoot
-    ? `
-          <button type="button" class="btn secondary" id="ov-export-csv" title="All domains under recon with contacts.json">Export CSV</button>
-          <button type="button" class="btn" id="ov-export-xlsx" title="Styled workbook: navy header, row tint by data completeness">Export Excel</button>`
+    ? `<button type="button" class="btn" id="ov-export-xlsx" title="Export domains to Excel">Export Excel</button>`
     : '';
 
   $('#view-browse').innerHTML = `
@@ -693,12 +691,12 @@ async function loadOutputViewer(name, browsePath = '', selectedFilePath = '') {
   searchInput.addEventListener('input', applyListFilter);
 
   if (atProjectRoot) {
-    $('#ov-export-csv').onclick = () => {
-      downloadReconContactsExport(name, 'csv').catch((e) => showError(e.message));
-    };
-    $('#ov-export-xlsx').onclick = () => {
-      downloadReconContactsExport(name, 'xlsx').catch((e) => showError(e.message));
-    };
+    const btn = $('#ov-export-xlsx');
+    if (btn) {
+      btn.onclick = () => {
+        downloadDomainsXlsx(name).catch((e) => showError(e.message));
+      };
+    }
   }
 
   async function renderSelectedFile() {
@@ -886,8 +884,7 @@ async function loadProjectInputs(name) {
         <label class="chk"><input type="checkbox" name="step" value="duckduckgo" /> DuckDuckGo</label>
         <label class="chk"><input type="checkbox" name="step" value="google" /> Google</label>
         <label class="chk"><input type="checkbox" name="step" value="clean" /> Clean</label>
-        <label class="chk"><input type="checkbox" name="step" value="inspector" /> Inspector</label>
-        <label class="chk" style="margin-top: 6px; display: block;"><input type="checkbox" name="step" value="enum" /> Enum (LLM Contact Extractor)</label>
+        <label class="chk"><input type="checkbox" name="step" value="enrich" /> Enrich (Blogs/LinkedIn)</label>
       </div>
       <div id="run-config-preview"></div>
       <div class="row" style="margin-top:1rem">
@@ -943,16 +940,10 @@ async function loadProjectInputs(name) {
         '<div class="hint">Clean: raw results + merged blacklist (repo default list and project <code>blacklist.txt</code>, both apply). A listed host also blocks its subdomains (e.g. <code>acme.com</code> blocks <code>test.acme.com</code>), not other suffixes like <code>acme.in</code>.</div>',
       );
     }
-    if (steps.includes('inspector')) {
-      blocks.push(`
-        <div class="row" style="margin-bottom:0.5rem">
-          <strong>Inspector</strong>
-          <label class="hint" for="run-inspector-screenshots">Capture Screenshots</label>
-          <input id="run-inspector-screenshots" type="checkbox" checked />
-        </div>
-        <p class="hint" style="margin:0 0 0.5rem">Inspector uses cleaned results for deep analysis.</p>`);
+    if (steps.includes('enrich')) {
+      blocks.push('<div class="hint">Enrich: Downloads homepages to check for blogs/resources and LinkedIn links.</div>');
     }
-    if (steps.includes('enum')) blocks.push('<div class="hint">Enum selected: brute-forces contacts and extracts via LLM.</div>');
+
     $('#run-config-preview').innerHTML = blocks.length
       ? `<div class="panel" style="margin:0.75rem 0 0;"><h2>Run config</h2>${blocks.join('')}</div>`
       : '';
@@ -1005,11 +996,7 @@ async function loadProjectInputs(name) {
           offset: Number($('#run-google-offset')?.value || 0),
         };
       }
-      if (steps.includes('inspector')) {
-        runConfig.inspector = {
-          captureScreenshots: $('#run-inspector-screenshots')?.checked ?? true,
-        };
-      }
+
       await api(`/api/projects/${encodeURIComponent(name)}/recon`, {
         method: 'POST',
         body: JSON.stringify({

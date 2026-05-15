@@ -272,6 +272,11 @@ function clean() {
   try {
     mkdirSync(dirname(config.paths.cleanedResults), { recursive: true });
     writeFileSync(config.paths.cleanedResults, outputLines.join('\n') + '\n', 'utf-8');
+    
+    // Also write domains.csv
+    const domainsList = [...new Set(final.map((r) => r.domain))];
+    const csvLines = ['Domain', ...domainsList];
+    writeFileSync(join(dirname(config.paths.cleanedResults), 'domains.csv'), csvLines.join('\n') + '\n', 'utf-8');
   } catch (err) {
     console.error(`[ERROR] Cannot write ${config.paths.cleanedResults}: ${err.message}`);
     process.exit(1);

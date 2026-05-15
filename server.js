@@ -1,6 +1,7 @@
 // DRISHTI — local web GUI (Express + SSE logs)
 
 import express from 'express';
+import ExcelJS from 'exceljs';
 import {
   readdirSync,
   statSync,
@@ -19,11 +20,7 @@ import {
   mergeTmpCleanedIntoCanonical,
   mergeTmpLogs,
 } from './lib/mergeProjectResults.js';
-import {
-  collectReconContactRows,
-  buildReconContactsCsv,
-  buildReconContactsXlsxBuffer,
-} from './lib/reconContactsExport.js';
+
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -34,7 +31,7 @@ const PROJECT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 /** Legacy / global inspector output at repo root — not a user project. */
 const HIDDEN_PROJECT_DIRS = new Set(['recon']);
 
-const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'inspector', 'enum'];
+const STEP_ORDER = ['bing', 'duckduckgo', 'google', 'clean', 'enrich'];
 
 const SCRAPE_ENGINE_ENV = {
   bing: { maxPages: 'DRISHTI_BING_MAX_PAGES', offset: 'DRISHTI_BING_OFFSET' },
@@ -331,8 +328,7 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
   const sorted = STEP_ORDER.filter((s) => steps.includes(s));
   const scraping = sorted.filter((s) => s === 'bing' || s === 'duckduckgo' || s === 'google');
   const runClean = sorted.includes('clean');
-  const runInspector = sorted.includes('inspector');
-  const runEnum = sorted.includes('enum');
+  const runEnrich = sorted.includes('enrich');
   const needsKeywords = scraping.length > 0 || runClean;
   const kwTrim = String(keywordsText).trim();
 
@@ -364,7 +360,7 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
       }
     }
   }
-  // Inspector-only: do not overwrite keywords/blacklist from this form (use Save or existing files).
+
 
   if (sorted.length === 0) {
     throw new Error('No steps selected');
@@ -422,20 +418,11 @@ async function executeReconJob(runId, projectName, steps, keywordsText, blacklis
     }
   }
 
-  if (runInspector && !isRunAborted(runId)) {
-    emitRunLog(runId, `\n[gui] ▶ inspector (GHOST_PROJECT_DIR=${root})\n`);
-    const inspectorEnv = { GHOST_PROJECT_DIR: root };
-    if (runConfig?.inspector && runConfig.inspector.captureScreenshots === false) {
-      inspectorEnv.DRISHTI_INSPECTOR_SCREENSHOTS = 'false';
-    }
-    await runCmd(runId, process.execPath, ['inspector/main.js'], inspectorEnv);
-  }
 
-  if (runEnum && !isRunAborted(runId)) {
-    emitRunLog(runId, `\n[gui] ▶ enum (GHOST_PROJECT_DIR=${root})\n`);
-    await runCmd(runId, process.execPath, ['enum/main.js'], {
-      GHOST_PROJECT_DIR: root,
-    });
+
+  if (runEnrich && !isRunAborted(runId)) {
+    emitRunLog(runId, `\n[gui] ▶ node enrich/main.js --project ${projectName}\n`);
+    await runCmd(runId, process.execPath, ['enrich/main.js', '--project', projectName]);
   }
 
   if (isRunAborted(runId)) throw new Error('STOPPED');
@@ -800,37 +787,62 @@ app.get('/api/projects/:name/images-in-dir', (req, res) => {
   }
 });
 
-app.get('/api/projects/:name/export-recon-contacts', async (req, res) => {
+app.get('/api/projects/:name/export-domains-xlsx', async (req, res) => {
   const name = req.params.name;
   if (!PROJECT_NAME_RE.test(name)) return res.status(400).json({ error: 'Bad name' });
-  const format = String(req.query.format || 'xlsx').toLowerCase();
   try {
-    const reconPath = safeProjectFile(name, 'recon');
-    const rows = collectReconContactRows(reconPath);
+    const csvPath = safeProjectFile(name, 'domains.csv');
+    if (!existsSync(csvPath)) {
+      return res.status(404).json({ error: 'domains.csv not found' });
+    }
+
+    const csvContent = readFileSync(csvPath, 'utf-8');
+    const lines = csvContent.split('\n').map(l => l.trim()).filter(Boolean);
+    
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Domains');
+    
+    // Header
+    const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, ''));
+    sheet.addRow(headers);
+    sheet.getRow(1).font = { bold: true };
+    
+    // Data
+    for (let i = 1; i < lines.length; i++) {
+      const rowStr = lines[i];
+      const rowData = [];
+      let currentVal = '';
+      let inQuotes = false;
+      for (let j = 0; j < rowStr.length; j++) {
+        const char = rowStr[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          rowData.push(currentVal);
+          currentVal = '';
+        } else {
+          currentVal += char;
+        }
+      }
+      rowData.push(currentVal);
+      sheet.addRow(rowData);
+    }
+    
+    sheet.columns.forEach(column => {
+      column.width = 30;
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     const safeBase = name.replace(/[^\w.-]+/g, '_');
-
-    if (format === 'csv') {
-      const csv = buildReconContactsCsv(rows);
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${safeBase}-recon-contacts.csv"`);
-      res.send(`\uFEFF${csv}`);
-      return;
-    }
-
-    if (format === 'xlsx') {
-      const buf = await buildReconContactsXlsxBuffer(rows);
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader('Content-Disposition', `attachment; filename="${safeBase}-recon-contacts.xlsx"`);
-      res.send(buf);
-      return;
-    }
-
-    res.status(400).json({ error: 'format must be xlsx or csv' });
+    res.setHeader('Content-Disposition', `attachment; filename="${safeBase}-domains.xlsx"`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
